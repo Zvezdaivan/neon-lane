@@ -1,0 +1,66 @@
+@import "@fontsource/noto-sans-tc/chinese-traditional-400.css";
+@import "@fontsource/noto-sans-tc/chinese-traditional-700.css";
+@import "@fontsource/noto-sans-tc/latin-400.css";
+@import "@fontsource/noto-sans-tc/latin-700.css";
+@import "@fontsource/fraunces/latin-600.css";
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Noto Sans TC", "PingFang HK", "Microsoft JhengHei", sans-serif;
+  --font-display: "Fraunces", "Noto Sans TC", serif;
+  --color-ink: #12161a;
+  --color-ink-2: #1c2328;
+  --color-line: #3a454c;
+  --color-cream: #f3eee4;
+  --color-cream-dim: #c9c0b2;
+  --color-amber: #e8a04a;
+  --color-amber-deep: #c47b2b;
+  --color-jade: #3dbe8c;
+  --color-clay: #c46a45;
+  --color-dye-0: #e8a04a;
+  --color-dye-1: #c46a45;
+  --color-dye-2: #3dbe8c;
+  --color-dye-3: #f3eee4;
+  --color-dye-4: #1f6f62;
+  --radius-lg: 1rem;
+  --radius-xl: 1.25rem;
+}
+
+@layer base {
+  html {
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    margin: 0;
+    min-height: 100dvh;
+    background: var(--color-ink);
+    color: var(--color-cream);
+    font-family: var(--font-sans);
+    line-height: 1.5;
+  }
+  h1,
+  h2 {
+    text-wrap: balance;
+  }
+  button:not(:disabled),
+  [role="button"]:not(:disabled) {
+    cursor: pointer;
+  }
+  ::selection {
+    background: var(--color-amber);
+    color: var(--color-ink);
+  }
+  .nl-label {
+    pointer-events: none !important;
+    user-select: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
