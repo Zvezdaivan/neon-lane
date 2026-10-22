@@ -9,6 +9,9 @@
  * rolls back and accepts, so pairs converge without wedging.
  */
 
+/** Back-pressure cap for the reliable channel (Chrome closes it past 16 MB). */
+const RELIABLE_BUFFER_MAX = 4 * 1024 * 1024;
+
 export type SignalKind = "offer" | "answer" | "ice";
 
 /**
@@ -154,13 +157,22 @@ export class P2PRoom {
     }
   }
 
-  /** Send reliably (ordered) to one peer, or to all when peerId is omitted. */
-  send(data: unknown, peerId?: string): void {
+  /**
+   * Send reliably (ordered) to one peer, or to all when peerId is omitted.
+   * Returns false when nothing was sent (channel not open, or its send buffer
+   * is backed up) so callers that care can retry or fail.
+   */
+  send(data: unknown, peerId?: string): boolean {
     const wire = JSON.stringify({ t: "d", d: data });
     const targets = peerId ? [this.peers.get(peerId)] : [...this.peers.values()];
+    let sent = false;
     for (const slot of targets) {
-      if (slot?.reliable?.readyState === "open") slot.reliable.send(wire);
+      const ch = slot?.reliable;
+      if (ch?.readyState !== "open" || ch.bufferedAmount > RELIABLE_BUFFER_MAX) continue;
+      ch.send(wire);
+      sent = true;
     }
+    return sent;
   }
 
   peerList(): PeerInfo[] {

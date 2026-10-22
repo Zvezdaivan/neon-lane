@@ -22,7 +22,7 @@ export interface P2PRoomHandle {
   /** Unreliable game-state fanout to every connected peer. */
   broadcast: (data: unknown) => void;
   /** Reliable ordered send to one peer (or all when peerId is omitted). */
-  send: (data: unknown, peerId?: string) => void;
+  send: (data: unknown, peerId?: string) => boolean;
   /** Subscribe to incoming messages; returns an unsubscribe function. */
   onMessage: (
     fn: (from: string, data: unknown, channel: "state" | "reliable") => void,
@@ -66,7 +66,7 @@ export function useP2PRoom(options: UseP2PRoomOptions = {}): P2PRoomHandle {
 
   const broadcast = useCallback((data: unknown) => roomRef.current?.broadcast(data), []);
   const send = useCallback(
-    (data: unknown, peerId?: string) => roomRef.current?.send(data, peerId),
+    (data: unknown, peerId?: string) => roomRef.current?.send(data, peerId) ?? false,
     [],
   );
   const onMessage = useCallback(
