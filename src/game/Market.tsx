@@ -196,10 +196,40 @@ function makeCobbles() {
   return t;
 }
 
+const ROOF_FADE_R = 1.45;
+const fwd = new THREE.Vector3();
+
 function Well() {
   const fish = useRef<THREE.Group>(null);
-  useFrame(({ clock }) => {
+  const roof = useRef<THREE.Group>(null);
+  const fade = useRef(1);
+  useFrame(({ clock, camera }, dt) => {
     if (fish.current) fish.current.rotation.y = clock.elapsedTime * 0.35;
+    // Fade the roof when the camera is close enough that it would hide the player.
+    // Sample the view ray up to the chase-cam distance and check it against the roof volume.
+    camera.getWorldDirection(fwd);
+    let near = false;
+    for (let t = 0; t <= 7 && !near; t += 0.35) {
+      const x = camera.position.x + fwd.x * t;
+      const y = camera.position.y + fwd.y * t;
+      const z = camera.position.z + fwd.z * t;
+      near = y > 1.9 && y < 3.3 && Math.hypot(x, z) < ROOF_FADE_R;
+    }
+    const want = near ? 0.15 : 1;
+    const next = fade.current + (want - fade.current) * (1 - Math.exp(-Math.min(dt, 0.1) * 8));
+    if (Math.abs(next - fade.current) < 1e-3 || !roof.current) return;
+    fade.current = next;
+    roof.current.traverse((o) => {
+      const m = (o as THREE.Mesh).material as THREE.Material | undefined;
+      if (!m) return;
+      const clear = next < 0.99;
+      if (m.transparent !== clear) {
+        m.transparent = clear;
+        m.needsUpdate = true;
+      }
+      m.opacity = next;
+      m.depthWrite = next >= 0.99;
+    });
   });
   return (
     <group>
@@ -243,26 +273,28 @@ function Well() {
           <meshToonMaterial color={TIMBER} />
         </mesh>
       ))}
-      <mesh position={[0, 2.05, 0]} rotation={[0, 0, Math.PI / 2]}>
-        <cylinderGeometry args={[0.07, 0.07, 2.6, 10]} />
-        <meshToonMaterial color={TIMBER} />
-      </mesh>
-      <mesh position={[0, 1.75, 0]}>
-        <cylinderGeometry args={[0.012, 0.012, 0.6, 4]} />
-        <meshBasicMaterial color="#3b2a1a" />
-      </mesh>
-      <mesh position={[0, 1.42, 0]}>
-        <cylinderGeometry args={[0.13, 0.11, 0.2, 10]} />
-        <meshToonMaterial color="#a8693a" />
-      </mesh>
-      <mesh position={[0, 2.6, 0]} rotation={[0, Math.PI / 4, 0]}>
-        <coneGeometry args={[1.25, 0.9, 4]} />
-        <meshToonMaterial color="#e8453c" />
-      </mesh>
-      <mesh position={[0, 3.12, 0]}>
-        <sphereGeometry args={[0.11, 12, 10]} />
-        <meshToonMaterial color={GOLD} />
-      </mesh>
+      <group ref={roof}>
+        <mesh position={[0, 1.75, 0]}>
+          <cylinderGeometry args={[0.012, 0.012, 0.6, 4]} />
+          <meshBasicMaterial color="#3b2a1a" />
+        </mesh>
+        <mesh position={[0, 1.42, 0]}>
+          <cylinderGeometry args={[0.13, 0.11, 0.2, 10]} />
+          <meshToonMaterial color="#a8693a" />
+        </mesh>
+        <mesh position={[0, 2.05, 0]} rotation={[0, 0, Math.PI / 2]}>
+          <cylinderGeometry args={[0.07, 0.07, 2.6, 10]} />
+          <meshToonMaterial color={TIMBER} />
+        </mesh>
+        <mesh position={[0, 2.6, 0]} rotation={[0, Math.PI / 4, 0]}>
+          <coneGeometry args={[1.25, 0.9, 4]} />
+          <meshToonMaterial color="#e8453c" />
+        </mesh>
+        <mesh position={[0, 3.12, 0]}>
+          <sphereGeometry args={[0.11, 12, 10]} />
+          <meshToonMaterial color={GOLD} />
+        </mesh>
+      </group>
     </group>
   );
 }
