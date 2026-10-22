@@ -36,7 +36,7 @@ export type ChatLine = {
 export type NetApi = {
   selfId: string;
   broadcast: (data: unknown) => void;
-  send: (data: unknown, peerId?: string) => void;
+  send: (data: unknown, peerId?: string) => boolean;
 };
 
 export type AutoTarget = {

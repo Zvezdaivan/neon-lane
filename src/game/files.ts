@@ -4,6 +4,10 @@ export const PASS_RANGE = 2.8;
 export const PASS_BREAK = 6;
 export const MAX_FILE_BYTES = 4 * 1024 * 1024;
 export const CHUNK_BYTES = 12_000;
+/** Sender waits this long for the receiver's "got it" after the last chunk. */
+export const ACK_TIMEOUT_MS = 20_000;
+/** Receiver gives up when no chunk arrives for this long. */
+export const RECV_IDLE_MS = 15_000;
 
 const ID_RE = /^f[a-z0-9]{8}$/;
 
@@ -36,6 +40,9 @@ type Job = {
   url?: string;
   note: string;
   abort: boolean;
+  lastAt: number;
+  /** Sender: all chunks + "fd" sent, waiting for the receiver's "fg". */
+  acked?: boolean;
 };
 
 export function bytesToB64(bytes: Uint8Array): string {
@@ -97,7 +104,8 @@ export class FilePass {
   private jobs = new Map<string, Job>();
   private pumping = new Set<string>();
   private readonly opts: {
-    send: (data: unknown, peerId: string) => void;
+    /** Returns false when the message could not be sent (peer gone / channel closed). */
+    send: (data: unknown, peerId: string) => boolean | void;
     distance: (peerId: string) => number | null;
     nameOf: (peerId: string) => string;
     onChange: (views: PassView[]) => void;
@@ -105,7 +113,7 @@ export class FilePass {
   };
 
   constructor(opts: {
-    send: (data: unknown, peerId: string) => void;
+    send: (data: unknown, peerId: string) => boolean | void;
     distance: (peerId: string) => number | null;
     nameOf: (peerId: string) => string;
     onChange: (views: PassView[]) => void;
@@ -177,6 +185,7 @@ export class FilePass {
       file,
       note: "等對方接收",
       abort: false,
+      lastAt: Date.now(),
     };
     this.jobs.set(id, job);
     this.publish();
@@ -215,7 +224,9 @@ export class FilePass {
     }
     job.status = "recv";
     job.note = "接收緊";
+    job.lastAt = Date.now();
     this.publish();
+    this.watchIdle(job);
     try {
       this.opts.send({ k: "fa", id }, job.peerId);
     } catch {
@@ -241,7 +252,7 @@ export class FilePass {
     if (!data || typeof data !== "object") return false;
     const msg = data as Record<string, unknown>;
     const kind = msg.k;
-    if (kind !== "fo" && kind !== "fa" && kind !== "fr" && kind !== "fc" && kind !== "fd" && kind !== "fx") {
+    if (kind !== "fo" && kind !== "fa" && kind !== "fr" && kind !== "fc" && kind !== "fd" && kind !== "fx" && kind !== "fg") {
       return false;
     }
     const id = typeof msg.id === "string" ? msg.id : "";
@@ -250,7 +261,8 @@ export class FilePass {
     else if (kind === "fa") this.onAccept(from, id);
     else if (kind === "fr") this.onReject(id);
     else if (kind === "fc") this.onChunk(from, id, msg);
-    else if (kind === "fd") this.onDone(id);
+    else if (kind === "fd") this.onDone(from, id);
+    else if (kind === "fg") this.onGot(from, id);
     else this.onCancel(id);
     return true;
   }
@@ -293,6 +305,7 @@ export class FilePass {
       chunks: new Map(),
       note: "等你接收",
       abort: false,
+      lastAt: Date.now(),
     };
     this.jobs.set(id, job);
     this.publish();
@@ -352,12 +365,13 @@ export class FilePass {
     }
     job.chunks.set(index, bytes);
     job.got += bytes.length;
+    job.lastAt = Date.now();
     if (job.chunks.size % 3 === 0) this.publish();
   }
 
-  private onDone(id: string) {
+  private onDone(from: string, id: string) {
     const job = this.jobs.get(id);
-    if (!job || job.status !== "recv") return;
+    if (!job || job.peerId !== from || job.status !== "recv") return;
     if (job.chunks.size !== job.total || job.got !== job.size) {
       this.fail(job, "檔案未齊");
       return;
@@ -379,6 +393,43 @@ export class FilePass {
     job.note = "可以下載";
     this.publish();
     this.opts.onNote(`收到 ${job.fileName}`);
+    this.trySend({ k: "fg", id }, job.peerId);
+  }
+
+  /** Receiver confirmed the whole file arrived. */
+  private onGot(from: string, id: string) {
+    const job = this.jobs.get(id);
+    if (!job || job.peerId !== from || job.status !== "send" || !job.acked) return;
+    job.acked = false;
+    job.status = "done";
+    job.got = job.size;
+    job.note = "已送出";
+    job.file = undefined;
+    this.publish();
+    this.opts.onNote(`已傳 ${job.fileName} 俾${job.peerName}`);
+  }
+
+  private trySend(data: unknown, peerId: string): boolean {
+    try {
+      return this.opts.send(data, peerId) !== false;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Receiver side: fail if the sender goes quiet mid-transfer. */
+  private watchIdle(job: Job) {
+    const timer = setInterval(() => {
+      if (this.jobs.get(job.id) !== job || job.status !== "recv") {
+        clearInterval(timer);
+        return;
+      }
+      if (Date.now() - job.lastAt > RECV_IDLE_MS) {
+        clearInterval(timer);
+        this.trySend({ k: "fx", id: job.id }, job.peerId);
+        this.fail(job, "傳輸中斷");
+      }
+    }, 2000);
   }
 
   private fail(job: Job, note: string) {
@@ -417,12 +468,8 @@ export class FilePass {
         const payload = { k: "fc", id: job.id, i, n: job.total, d: bytesToB64(slice) };
         let sent = false;
         for (let attempt = 0; attempt < 40 && !sent && !job.abort; attempt += 1) {
-          try {
-            this.opts.send(payload, job.peerId);
-            sent = true;
-          } catch {
-            await sleep(40);
-          }
+          sent = this.trySend(payload, job.peerId);
+          if (!sent) await sleep(40);
         }
         if (job.abort) return;
         if (!sent) {
@@ -434,13 +481,18 @@ export class FilePass {
         await sleep(6);
       }
       if (job.abort) return;
-      this.opts.send({ k: "fd", id: job.id, n: job.total }, job.peerId);
-      job.status = "done";
+      if (!this.trySend({ k: "fd", id: job.id, n: job.total }, job.peerId)) {
+        this.fail(job, "傳輸中斷");
+        return;
+      }
+      // Only report success once the receiver confirms ("fg").
       job.got = job.size;
-      job.note = "已送出";
-      job.file = undefined;
+      job.note = "等對方確認";
+      job.acked = true;
       this.publish();
-      this.opts.onNote(`已傳 ${job.fileName} 俾${job.peerName}`);
+      setTimeout(() => {
+        if (this.jobs.get(job.id) === job && job.status === "send") this.fail(job, "傳輸中斷");
+      }, ACK_TIMEOUT_MS);
     } catch {
       if (!job.abort) this.fail(job, "傳輸中斷");
     } finally {
