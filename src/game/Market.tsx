@@ -52,11 +52,10 @@ export function MarketSquare() {
       />
       <LampPost position={[-5.6, 0, 5.2]} />
       <LampPost position={[5.6, 0, 5.2]} />
-      <LampPost position={[-6.2, 0, -5.4]} />
-      <LampPost position={[6.2, 0, -5.4]} />
+      <LampPost position={[-6.2, 0, -5.4]} lit />
+      <LampPost position={[6.2, 0, -5.4]} lit />
       <Houses />
-      <Bunting from={[-7, -3.4]} to={[7, -3.4]} />
-      <Bunting from={[-5.6, 5.2]} to={[5.6, 5.2]} />
+      <Bunting from={[-6.2, -5.4]} to={[6.2, -5.4]} />
       <Clouds />
     </group>
   );
@@ -274,21 +273,17 @@ function Gatehouse() {
     <group position={[0, 0, 12.2]}>
       {[-1, 1].map((s) => (
         <group key={s} position={[s * 1.55, 0, 0]}>
-          <mesh position={[0, 1.4, 0]}>
-            <cylinderGeometry args={[0.38, 0.42, 2.8, 12]} />
+          <mesh position={[0, 0.95, 0]}>
+            <cylinderGeometry args={[0.3, 0.36, 1.9, 12]} />
             <meshToonMaterial color={STONE} />
           </mesh>
-          <mesh position={[0, 3.2, 0]}>
-            <coneGeometry args={[0.55, 1, 12]} />
+          <mesh position={[0, 2.15, 0]}>
+            <coneGeometry args={[0.44, 0.6, 12]} />
             <meshToonMaterial color="#3a6ee8" />
           </mesh>
-          <mesh position={[0, 3.95, 0]}>
-            <cylinderGeometry args={[0.02, 0.02, 0.6, 4]} />
-            <meshBasicMaterial color="#3b2a1a" />
-          </mesh>
-          <mesh position={[0.2, 4.1, 0]}>
-            <planeGeometry args={[0.38, 0.24]} />
-            <meshToonMaterial color={s < 0 ? "#ff5a5a" : GOLD} side={THREE.DoubleSide} />
+          <mesh position={[0, 2.5, 0]}>
+            <sphereGeometry args={[0.07, 10, 8]} />
+            <meshToonMaterial color={s < 0 ? "#ff5a5a" : GOLD} />
           </mesh>
         </group>
       ))}
@@ -466,12 +461,7 @@ function useSign(label: string) {
   return tex;
 }
 
-function LampPost({ position }: { position: [number, number, number] }) {
-  const light = useRef<THREE.PointLight>(null);
-  useFrame(({ clock }) => {
-    if (light.current)
-      light.current.intensity = 1.4 + Math.sin(clock.elapsedTime * 2.1 + position[0]) * 0.2;
-  });
+function LampPost({ position, lit }: { position: [number, number, number]; lit?: boolean }) {
   return (
     <group position={position}>
       <mesh position={[0, 0.9, 0]}>
@@ -490,14 +480,15 @@ function LampPost({ position }: { position: [number, number, number] }) {
         <coneGeometry args={[0.28, 0.28, 4]} />
         <meshToonMaterial color="#3b3646" />
       </mesh>
-      <pointLight
-        ref={light}
-        position={[0, 1.95, 0]}
-        color="#ffc86b"
-        intensity={1.4}
-        distance={7}
-        decay={2}
-      />
+      {lit && (
+        <pointLight
+          position={[0, 1.95, 0]}
+          color="#ffc86b"
+          intensity={1.4}
+          distance={8}
+          decay={2}
+        />
+      )}
     </group>
   );
 }
@@ -510,13 +501,13 @@ function Houses() {
       const a = (k / n) * Math.PI * 2 + 0.1;
       // Leave an opening behind the gatehouse (south, +z).
       if (Math.abs(wrap(a - Math.PI / 2)) < 0.35) continue;
-      const r = PLAZA_R + 4.5 + (k % 3) * 0.6;
+      const r = PLAZA_R + 8 + (k % 3) * 0.6;
       out.push({
         x: Math.cos(a) * r,
         z: Math.sin(a) * r,
         rot: -a - Math.PI / 2,
         w: 3.6 + (k % 2) * 0.8,
-        h: 3.2 + (k % 3) * 0.9,
+        h: 2.6 + (k % 3) * 0.6,
         i: k,
       });
     }
@@ -614,24 +605,47 @@ function House({
   );
 }
 
+const BUNTING_TOP = 2.32; // lamp-post cap height: the rope is tied there
+
 function Bunting({ from, to }: { from: [number, number]; to: [number, number] }) {
-  const flags = 14;
+  const flags = 9;
+  const segs = 12;
+  const sag = 0.55;
   const colors = ["#ff5a5a", "#ffc23d", "#3a8bff", "#2fbf71", "#ff6fae", "#8a4fd6"];
   const [x0, z0] = from;
   const [x1, z1] = to;
   const yaw = Math.atan2(-(z1 - z0), x1 - x0);
+  const at = (t: number) =>
+    new THREE.Vector3(
+      x0 + (x1 - x0) * t,
+      BUNTING_TOP - Math.sin(t * Math.PI) * sag,
+      z0 + (z1 - z0) * t,
+    );
+  const rope = Array.from({ length: segs }, (_, i) => {
+    const a = at(i / segs);
+    const b = at((i + 1) / segs);
+    const mid = a.clone().add(b).multiplyScalar(0.5);
+    const dir = b.clone().sub(a);
+    const q = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 1, 0),
+      dir.clone().normalize(),
+    );
+    return { mid, len: dir.length(), q };
+  });
   return (
     <group>
+      {rope.map((r, i) => (
+        <mesh key={`r${i}`} position={r.mid} quaternion={r.q}>
+          <cylinderGeometry args={[0.012, 0.012, r.len, 4]} />
+          <meshBasicMaterial color="#5a3a22" />
+        </mesh>
+      ))}
       {Array.from({ length: flags }, (_, i) => {
-        const t = (i + 0.5) / flags;
-        const y = 3.4 - Math.sin(t * Math.PI) * 0.6;
+        const t = (i + 1) / (flags + 1);
+        const p = at(t);
         return (
-          <mesh
-            key={i}
-            position={[x0 + (x1 - x0) * t, y, z0 + (z1 - z0) * t]}
-            rotation={[0, yaw, Math.PI]}
-          >
-            <circleGeometry args={[0.15, 3]} />
+          <mesh key={i} position={[p.x, p.y - 0.1, p.z]} rotation={[0, yaw, Math.PI]}>
+            <circleGeometry args={[0.12, 3]} />
             <meshToonMaterial color={colors[i % colors.length]!} side={THREE.DoubleSide} />
           </mesh>
         );

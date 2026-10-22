@@ -128,6 +128,12 @@ function Driver(props: WorldProps) {
   return null;
 }
 
+const CAMERA_BLOCKERS = [
+  { x: -1.55, z: 12.2, r: 0.95 },
+  { x: 1.55, z: 12.2, r: 0.95 },
+  { x: 0, z: 0, r: 1.7 },
+];
+
 function ChaseCam({
   player,
   camYaw,
@@ -152,12 +158,23 @@ function ChaseCam({
     const fz = -Math.cos(yaw);
     const p = player.current;
     const cam = state.camera;
-    const tx = p.x - fx * dist.current;
-    const tz = p.z - fz * dist.current;
+    let tx = p.x - fx * dist.current;
+    let tz = p.z - fz * dist.current;
+    // Keep the camera out of tall scenery (gate towers, well roof).
+    for (const o of CAMERA_BLOCKERS) {
+      const dx = tx - o.x;
+      const dz = tz - o.z;
+      const dd = Math.hypot(dx, dz);
+      if (dd < o.r) {
+        const k2 = dd > 1e-4 ? o.r / dd : 0;
+        tx = o.x + (dd > 1e-4 ? dx * k2 : o.r);
+        tz = o.z + dz * k2;
+      }
+    }
     cam.position.x += (tx - cam.position.x) * k;
     cam.position.y += (height.current - cam.position.y) * k;
     cam.position.z += (tz - cam.position.z) * k;
-    look.set(p.x, live ? 1.15 : 0.3, p.z);
+    look.set(p.x, live ? 1.45 : 0.3, p.z);
     cam.lookAt(look);
   });
   return null;
