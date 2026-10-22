@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { Html } from "@react-three/drei";
-import type { Group, Mesh, InstancedMesh } from "three";
+import type { Group, Mesh } from "three";
 import * as THREE from "three";
 import { AvatarMesh, type Motion } from "./Avatar";
-import { AMBER, CREAM, JADE, LEAF, LEAF_LIT, NIGHT, STONE, WATER, WOOD } from "./palette";
+import { MarketSquare } from "./Market";
+import { JADE } from "./palette";
 import { PLAZA_R, stepWalker, wrapAngle, type Obstacle } from "./sim";
 import type { Pose, WorldProps } from "./types";
 import { HEAR_MAX } from "./voice";
@@ -24,14 +25,7 @@ function WorldInner(props: WorldProps) {
       gl={{ antialias: true, powerPreference: "high-performance" }}
       onPointerMissed={() => props.onPick(null)}
     >
-      <color attach="background" args={[NIGHT]} />
-      <fog attach="fog" args={[NIGHT, 16, 42]} />
-      <hemisphereLight args={["#c5d0d8", "#3a2c22", 0.72]} />
-      <ambientLight intensity={0.18} />
-      <directionalLight position={[8, 14, 6]} intensity={0.42} color="#d5e0e8" />
-      <Plaza />
-      <Stars />
-      <StringLights />
+      <MarketSquare />
       <Driver {...props} />
       <ChaseCam player={props.player} camYaw={props.camYaw} live={props.live} />
       <OrbitDrag camYaw={props.camYaw} />
@@ -73,7 +67,8 @@ function Driver(props: WorldProps) {
     }
     const probe = props.probe.current;
     const source = probe ?? props.held.current;
-    const has = (code: string) => (Array.isArray(source) ? source.includes(code) : source.has(code));
+    const has = (code: string) =>
+      Array.isArray(source) ? source.includes(code) : source.has(code);
     let f = 0;
     let s = 0;
     if (has("KeyW") || has("ArrowUp")) f += 1;
@@ -133,6 +128,12 @@ function Driver(props: WorldProps) {
   return null;
 }
 
+const CAMERA_BLOCKERS = [
+  { x: -1.55, z: 12.2, r: 0.95 },
+  { x: 1.55, z: 12.2, r: 0.95 },
+  { x: 0, z: 0, r: 1.7 },
+];
+
 function ChaseCam({
   player,
   camYaw,
@@ -157,12 +158,23 @@ function ChaseCam({
     const fz = -Math.cos(yaw);
     const p = player.current;
     const cam = state.camera;
-    const tx = p.x - fx * dist.current;
-    const tz = p.z - fz * dist.current;
+    let tx = p.x - fx * dist.current;
+    let tz = p.z - fz * dist.current;
+    // Keep the camera out of tall scenery (gate towers, well roof).
+    for (const o of CAMERA_BLOCKERS) {
+      const dx = tx - o.x;
+      const dz = tz - o.z;
+      const dd = Math.hypot(dx, dz);
+      if (dd < o.r) {
+        const k2 = dd > 1e-4 ? o.r / dd : 0;
+        tx = o.x + (dd > 1e-4 ? dx * k2 : o.r);
+        tz = o.z + dz * k2;
+      }
+    }
     cam.position.x += (tx - cam.position.x) * k;
     cam.position.y += (height.current - cam.position.y) * k;
     cam.position.z += (tz - cam.position.z) * k;
-    look.set(p.x, live ? 1.15 : 0.3, p.z);
+    look.set(p.x, live ? 1.45 : 0.3, p.z);
     cam.lookAt(look);
   });
   return null;
@@ -269,7 +281,11 @@ function LocalAvatar(props: WorldProps) {
   return (
     <group ref={group} onClick={(event) => event.stopPropagation()}>
       <AvatarMesh dye={props.profile.dye} hair={props.profile.hair} motion={motion} />
-      <Nameplate name={props.profile.name} bubble={props.bubbles.self} selected={props.selected === "self"} />
+      <Nameplate
+        name={props.profile.name}
+        bubble={props.bubbles.self}
+        selected={props.selected === "self"}
+      />
     </group>
   );
 }
@@ -328,7 +344,13 @@ function RemoteAvatar({
   });
   const shown = look.current;
   return (
-    <group ref={group} onClick={(event) => { event.stopPropagation(); onPick(id); }}>
+    <group
+      ref={group}
+      onClick={(event) => {
+        event.stopPropagation();
+        onPick(id);
+      }}
+    >
       <AvatarMesh dye={shown.dye} hair={shown.hair} motion={motion} />
       <Nameplate
         name={shown.name}
@@ -363,7 +385,13 @@ function NpcAvatar({
     motion.current.walking = true;
   });
   return (
-    <group ref={group} onClick={(event) => { event.stopPropagation(); onPick(id); }}>
+    <group
+      ref={group}
+      onClick={(event) => {
+        event.stopPropagation();
+        onPick(id);
+      }}
+    >
       <AvatarMesh dye={npc.dye} hair={npc.hair} motion={motion} />
       <Nameplate name={npc.name} sub="常客" bubble={bubble} selected={selected} />
     </group>
@@ -382,10 +410,18 @@ function Nameplate({
   selected?: boolean;
 }) {
   return (
-    <Html position={[0, 2.05, 0]} center distanceFactor={10} zIndexRange={[8, 0]} wrapperClass="nl-label">
+    <Html
+      position={[0, 2.05, 0]}
+      center
+      distanceFactor={10}
+      zIndexRange={[8, 0]}
+      wrapperClass="nl-label"
+    >
       <div className="pointer-events-none w-max max-w-44 text-center">
         {bubble ? (
-          <div className="mb-1 rounded-xl bg-cream px-2.5 py-1 text-xs leading-snug text-ink">{bubble}</div>
+          <div className="mb-1 rounded-xl bg-cream px-2.5 py-1 text-xs leading-snug text-ink">
+            {bubble}
+          </div>
         ) : null}
         <div
           className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${selected ? "bg-amber text-ink" : "bg-ink/80 text-cream"}`}
@@ -398,286 +434,6 @@ function Nameplate({
   );
 }
 
-function Plaza() {
-  const ground = useMemo(() => makeGround(), []);
-  useEffect(() => () => ground.dispose(), [ground]);
-  return (
-    <group>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
-        <circleGeometry args={[PLAZA_R + 0.2, 64]} />
-        <meshStandardMaterial map={ground} roughness={1} metalness={0} emissive="#2a3330" emissiveIntensity={0.28} />
-      </mesh>
-      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
-        <ringGeometry args={[PLAZA_R - 0.35, PLAZA_R, 64]} />
-        <meshStandardMaterial color={STONE} roughness={0.9} />
-      </mesh>
-      <Fountain />
-      <MoonGate />
-      <Stall position={[-8.3, 0, -0.6]} rotationY={Math.PI / 2} label="茶檔" awning={AMBER} />
-      <Stall position={[8.3, 0, -0.6]} rotationY={-Math.PI / 2} label="唱片" awning={JADE} />
-      <Stall position={[0, 0, -8.5]} rotationY={0} label="花檔" awning={CREAM} />
-      <Lantern position={[-5.6, 0, 5.2]} />
-      <Lantern position={[5.6, 0, 5.2]} />
-      <Lantern position={[-6.2, 0, -5.4]} />
-      <Lantern position={[6.2, 0, -5.4]} />
-      <Tree position={[-11.5, 0, 6.5]} />
-      <Tree position={[11.6, 0, 6.2]} />
-      <Tree position={[-12.2, 0, -6.4]} />
-      <Tree position={[12.2, 0, -6.8]} />
-      <Tree position={[0, 0, -12.6]} />
-      <Bench position={[-3.3, 0, 3.5]} />
-      <Bench position={[3.3, 0, 3.5]} flip />
-      <mesh position={[-18, 14, -22]}>
-        <sphereGeometry args={[1.5, 24, 16]} />
-        <meshBasicMaterial color={CREAM} />
-      </mesh>
-    </group>
-  );
-}
-
-function makeGround() {
-  const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 512;
-  const g = canvas.getContext("2d");
-  if (!g) return new THREE.CanvasTexture(canvas);
-  g.fillStyle = "#1a211e";
-  g.fillRect(0, 0, 512, 512);
-  const rad = g.createRadialGradient(256, 256, 30, 256, 256, 250);
-  rad.addColorStop(0, "#2a3832");
-  rad.addColorStop(1, "#1a211e");
-  g.fillStyle = rad;
-  g.fillRect(0, 0, 512, 512);
-  g.strokeStyle = "rgba(232,160,74,0.45)";
-  g.lineWidth = 4;
-  g.beginPath();
-  g.arc(256, 256, 148, 0, Math.PI * 2);
-  g.stroke();
-  g.strokeStyle = "rgba(243,238,228,0.12)";
-  g.lineWidth = 2;
-  g.beginPath();
-  g.arc(256, 256, 214, 0, Math.PI * 2);
-  g.stroke();
-  for (let i = 0; i < 90; i += 1) {
-    const a = Math.random() * Math.PI * 2;
-    const r = 20 + Math.random() * 210;
-    g.fillStyle = `rgba(243,238,228,${0.02 + Math.random() * 0.05})`;
-    g.beginPath();
-    g.arc(256 + Math.cos(a) * r, 256 + Math.sin(a) * r, 1 + Math.random() * 2.2, 0, Math.PI * 2);
-    g.fill();
-  }
-  const tex = new THREE.CanvasTexture(canvas);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
-}
-
-function Fountain() {
-  const koi = useRef<Group>(null);
-  useFrame(({ clock }) => {
-    if (!koi.current) return;
-    koi.current.rotation.y = clock.elapsedTime * 0.35;
-  });
-  return (
-    <group>
-      <mesh position={[0, 0.28, 0]}>
-        <cylinderGeometry args={[1.7, 1.9, 0.5, 28]} />
-        <meshStandardMaterial color={STONE} roughness={0.85} />
-      </mesh>
-      <mesh position={[0, 0.58, 0]}>
-        <cylinderGeometry args={[1.15, 1.2, 0.12, 28]} />
-        <meshStandardMaterial color={WATER} metalness={0.45} roughness={0.18} />
-      </mesh>
-      <mesh position={[0, 0.95, 0]}>
-        <cylinderGeometry args={[0.16, 0.22, 0.7, 10]} />
-        <meshStandardMaterial color={STONE} />
-      </mesh>
-      <group ref={koi} position={[0, 0.66, 0]}>
-        {[0, 1, 2].map((i) => {
-          const a = (i / 3) * Math.PI * 2;
-          return (
-            <mesh key={i} position={[Math.cos(a) * 0.72, 0, Math.sin(a) * 0.72]}>
-              <sphereGeometry args={[0.09, 10, 8]} />
-              <meshStandardMaterial color={i === 1 ? CREAM : AMBER} />
-            </mesh>
-          );
-        })}
-      </group>
-    </group>
-  );
-}
-
-function MoonGate() {
-  return (
-    <group position={[0, 0, 12.2]}>
-      <mesh position={[-1.55, 1.15, 0]}>
-        <boxGeometry args={[0.4, 2.3, 0.4]} />
-        <meshStandardMaterial color={STONE} />
-      </mesh>
-      <mesh position={[1.55, 1.15, 0]}>
-        <boxGeometry args={[0.4, 2.3, 0.4]} />
-        <meshStandardMaterial color={STONE} />
-      </mesh>
-      <mesh position={[0, 2.25, 0]}>
-        <torusGeometry args={[1.35, 0.11, 8, 20, Math.PI]} />
-        <meshStandardMaterial color={STONE} />
-      </mesh>
-    </group>
-  );
-}
-
-function Stall({
-  position,
-  rotationY,
-  label,
-  awning,
-}: {
-  position: [number, number, number];
-  rotationY: number;
-  label: string;
-  awning: string;
-}) {
-  const tex = useSign(label);
-  return (
-    <group position={position} rotation={[0, rotationY, 0]}>
-      <mesh position={[0, 0.55, 0]}>
-        <boxGeometry args={[2.5, 1.1, 1.25]} />
-        <meshStandardMaterial color="#2a3338" roughness={0.86} />
-      </mesh>
-      <mesh position={[0, 1.22, 0.05]} rotation={[0.2, 0, 0]}>
-        <boxGeometry args={[2.8, 0.08, 1.55]} />
-        <meshStandardMaterial color={awning} roughness={0.7} />
-      </mesh>
-      <mesh position={[0, 1.55, 0.7]}>
-        <planeGeometry args={[1.35, 0.62]} />
-        <meshBasicMaterial map={tex} toneMapped={false} />
-      </mesh>
-    </group>
-  );
-}
-
-function useSign(label: string) {
-  const tex = useMemo(() => {
-    const canvas = document.createElement("canvas");
-    canvas.width = 256;
-    canvas.height = 128;
-    const g = canvas.getContext("2d");
-    if (g) {
-      g.fillStyle = "#12161a";
-      g.fillRect(0, 0, 256, 128);
-      g.fillStyle = "#f3eee4";
-      g.font = "700 72px 'Noto Sans TC', sans-serif";
-      g.textAlign = "center";
-      g.textBaseline = "middle";
-      g.fillText(label, 128, 68);
-    }
-    const texture = new THREE.CanvasTexture(canvas);
-    texture.colorSpace = THREE.SRGBColorSpace;
-    return texture;
-  }, [label]);
-  useEffect(() => () => tex.dispose(), [tex]);
-  return tex;
-}
-
-function Lantern({ position }: { position: [number, number, number] }) {
-  const light = useRef<THREE.PointLight>(null);
-  useFrame(({ clock }) => {
-    if (!light.current) return;
-    light.current.intensity = 2.15 + Math.sin(clock.elapsedTime * 2.1 + position[0]) * 0.28;
-  });
-  return (
-    <group position={position}>
-      <mesh position={[0, 0.75, 0]}>
-        <cylinderGeometry args={[0.05, 0.07, 1.5, 8]} />
-        <meshStandardMaterial color={WOOD} />
-      </mesh>
-      <mesh position={[0, 1.62, 0]}>
-        <sphereGeometry args={[0.16, 12, 10]} />
-        <meshStandardMaterial color={AMBER} emissive={AMBER} emissiveIntensity={1.5} />
-      </mesh>
-      <pointLight ref={light} position={[0, 1.62, 0]} color={AMBER} intensity={2.2} distance={8.5} decay={2} />
-    </group>
-  );
-}
-
-function Tree({ position }: { position: [number, number, number] }) {
-  return (
-    <group position={position}>
-      <mesh position={[0, 0.7, 0]}>
-        <cylinderGeometry args={[0.09, 0.14, 1.4, 6]} />
-        <meshStandardMaterial color={WOOD} />
-      </mesh>
-      <mesh position={[0, 1.7, 0]}>
-        <sphereGeometry args={[0.55, 12, 10]} />
-        <meshStandardMaterial color={LEAF} />
-      </mesh>
-      <mesh position={[0.22, 2.05, 0.08]}>
-        <sphereGeometry args={[0.36, 10, 8]} />
-        <meshStandardMaterial color={LEAF_LIT} />
-      </mesh>
-    </group>
-  );
-}
-
-function Bench({ position, flip }: { position: [number, number, number]; flip?: boolean }) {
-  return (
-    <group position={position} rotation={[0, flip ? Math.PI : 0, 0]}>
-      <mesh position={[0, 0.38, 0]}>
-        <boxGeometry args={[1.2, 0.08, 0.4]} />
-        <meshStandardMaterial color={WOOD} />
-      </mesh>
-      <mesh position={[0, 0.7, -0.16]}>
-        <boxGeometry args={[1.2, 0.4, 0.08]} />
-        <meshStandardMaterial color={WOOD} />
-      </mesh>
-    </group>
-  );
-}
-
-function Stars() {
-  const geo = useMemo(() => {
-    const g = new THREE.BufferGeometry();
-    const arr = new Float32Array(160 * 3);
-    for (let i = 0; i < 160; i += 1) {
-      const r = 28 + Math.random() * 16;
-      const a = Math.random() * Math.PI * 2;
-      arr[i * 3] = Math.cos(a) * r;
-      arr[i * 3 + 1] = 6 + Math.random() * 16;
-      arr[i * 3 + 2] = Math.sin(a) * r;
-    }
-    g.setAttribute("position", new THREE.BufferAttribute(arr, 3));
-    return g;
-  }, []);
-  return (
-    <points geometry={geo}>
-      <pointsMaterial color={CREAM} size={0.07} sizeAttenuation />
-    </points>
-  );
-}
-
-function StringLights() {
-  const ref = useRef<InstancedMesh>(null);
-  const count = 11;
-  useEffect(() => {
-    const mesh = ref.current;
-    if (!mesh) return;
-    const dummy = new THREE.Object3D();
-    for (let i = 0; i < count; i += 1) {
-      const t = i / (count - 1);
-      dummy.position.set(-7 + t * 14, 3.15 + Math.sin(t * Math.PI) * 0.7, -3.4);
-      dummy.updateMatrix();
-      mesh.setMatrixAt(i, dummy.matrix);
-    }
-    mesh.instanceMatrix.needsUpdate = true;
-  }, []);
-  return (
-    <instancedMesh ref={ref} args={[undefined, undefined, count]}>
-      <sphereGeometry args={[0.07, 8, 8]} />
-      <meshStandardMaterial color={AMBER} emissive={AMBER} emissiveIntensity={1.6} />
-    </instancedMesh>
-  );
-}
-
 export function readPose(data: unknown): Pose | null {
   if (!data || typeof data !== "object") return null;
   const msg = data as Record<string, unknown>;
@@ -687,7 +443,8 @@ export function readPose(data: unknown): Pose | null {
   const yaw = num(msg.yaw);
   if (x === null || z === null || yaw === null) return null;
   if (Math.abs(x) > 30 || Math.abs(z) > 30) return null;
-  const emote = msg.emote === "wave" || msg.emote === "bow" || msg.emote === "dance" ? msg.emote : "";
+  const emote =
+    msg.emote === "wave" || msg.emote === "bow" || msg.emote === "dance" ? msg.emote : "";
   return {
     x,
     z,
