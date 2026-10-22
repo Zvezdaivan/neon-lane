@@ -73,7 +73,8 @@ function Driver(props: WorldProps) {
     }
     const probe = props.probe.current;
     const source = probe ?? props.held.current;
-    const has = (code: string) => (Array.isArray(source) ? source.includes(code) : source.has(code));
+    const has = (code: string) =>
+      Array.isArray(source) ? source.includes(code) : source.has(code);
     let f = 0;
     let s = 0;
     if (has("KeyW") || has("ArrowUp")) f += 1;
@@ -269,7 +270,11 @@ function LocalAvatar(props: WorldProps) {
   return (
     <group ref={group} onClick={(event) => event.stopPropagation()}>
       <AvatarMesh dye={props.profile.dye} hair={props.profile.hair} motion={motion} />
-      <Nameplate name={props.profile.name} bubble={props.bubbles.self} selected={props.selected === "self"} />
+      <Nameplate
+        name={props.profile.name}
+        bubble={props.bubbles.self}
+        selected={props.selected === "self"}
+      />
     </group>
   );
 }
@@ -328,7 +333,13 @@ function RemoteAvatar({
   });
   const shown = look.current;
   return (
-    <group ref={group} onClick={(event) => { event.stopPropagation(); onPick(id); }}>
+    <group
+      ref={group}
+      onClick={(event) => {
+        event.stopPropagation();
+        onPick(id);
+      }}
+    >
       <AvatarMesh dye={shown.dye} hair={shown.hair} motion={motion} />
       <Nameplate
         name={shown.name}
@@ -363,7 +374,13 @@ function NpcAvatar({
     motion.current.walking = true;
   });
   return (
-    <group ref={group} onClick={(event) => { event.stopPropagation(); onPick(id); }}>
+    <group
+      ref={group}
+      onClick={(event) => {
+        event.stopPropagation();
+        onPick(id);
+      }}
+    >
       <AvatarMesh dye={npc.dye} hair={npc.hair} motion={motion} />
       <Nameplate name={npc.name} sub="常客" bubble={bubble} selected={selected} />
     </group>
@@ -381,11 +398,25 @@ function Nameplate({
   bubble?: string;
   selected?: boolean;
 }) {
+  // Pin the portal to the canvas wrapper. Without it, drei's Html re-creates its
+  // React root when the event target connects after mount, and the old root's
+  // late unmount can leave the label container empty (seen on the local player).
+  const gl = useThree((state) => state.gl);
+  const portal = useMemo(() => ({ current: gl.domElement.parentElement as HTMLElement }), [gl]);
   return (
-    <Html position={[0, 2.05, 0]} center distanceFactor={10} zIndexRange={[8, 0]} wrapperClass="nl-label">
+    <Html
+      portal={portal}
+      position={[0, 2.05, 0]}
+      center
+      distanceFactor={10}
+      zIndexRange={[8, 0]}
+      wrapperClass="nl-label"
+    >
       <div className="pointer-events-none w-max max-w-44 text-center">
         {bubble ? (
-          <div className="mb-1 rounded-xl bg-cream px-2.5 py-1 text-xs leading-snug text-ink">{bubble}</div>
+          <div className="mb-1 rounded-xl bg-cream px-2.5 py-1 text-xs leading-snug text-ink">
+            {bubble}
+          </div>
         ) : null}
         <div
           className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${selected ? "bg-amber text-ink" : "bg-ink/80 text-cream"}`}
@@ -405,7 +436,13 @@ function Plaza() {
     <group>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0, 0]}>
         <circleGeometry args={[PLAZA_R + 0.2, 64]} />
-        <meshStandardMaterial map={ground} roughness={1} metalness={0} emissive="#2a3330" emissiveIntensity={0.28} />
+        <meshStandardMaterial
+          map={ground}
+          roughness={1}
+          metalness={0}
+          emissive="#2a3330"
+          emissiveIntensity={0.28}
+        />
       </mesh>
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.02, 0]}>
         <ringGeometry args={[PLAZA_R - 0.35, PLAZA_R, 64]} />
@@ -595,7 +632,14 @@ function Lantern({ position }: { position: [number, number, number] }) {
         <sphereGeometry args={[0.16, 12, 10]} />
         <meshStandardMaterial color={AMBER} emissive={AMBER} emissiveIntensity={1.5} />
       </mesh>
-      <pointLight ref={light} position={[0, 1.62, 0]} color={AMBER} intensity={2.2} distance={8.5} decay={2} />
+      <pointLight
+        ref={light}
+        position={[0, 1.62, 0]}
+        color={AMBER}
+        intensity={2.2}
+        distance={8.5}
+        decay={2}
+      />
     </group>
   );
 }
@@ -687,7 +731,8 @@ export function readPose(data: unknown): Pose | null {
   const yaw = num(msg.yaw);
   if (x === null || z === null || yaw === null) return null;
   if (Math.abs(x) > 30 || Math.abs(z) > 30) return null;
-  const emote = msg.emote === "wave" || msg.emote === "bow" || msg.emote === "dance" ? msg.emote : "";
+  const emote =
+    msg.emote === "wave" || msg.emote === "bow" || msg.emote === "dance" ? msg.emote : "";
   return {
     x,
     z,
