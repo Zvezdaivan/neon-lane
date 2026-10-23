@@ -98,7 +98,7 @@ export function NeonLane() {
   passNote.current = (text) => pushChat({ id: nid(), name: "", text, kind: "sys", at: Date.now() });
   if (passRef.current === null) {
     passRef.current = new FilePass({
-      send: (data, peerId) => net.current?.send(data, peerId),
+      send: (data, peerId) => net.current?.send(data, peerId) ?? false,
       distance: (peerId) => {
         const pose = remotes.current.get(peerId);
         if (!pose) return null;
