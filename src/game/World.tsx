@@ -409,8 +409,12 @@ function Nameplate({
   bubble?: string;
   selected?: boolean;
 }) {
+  // Stable portal: stops drei Html re-creating its root after mount (empty own label).
+  const gl = useThree((state) => state.gl);
+  const portal = useMemo(() => ({ current: gl.domElement.parentElement as HTMLElement }), [gl]);
   return (
     <Html
+      portal={portal}
       position={[0, 2.05, 0]}
       center
       distanceFactor={10}
