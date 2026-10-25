@@ -232,6 +232,7 @@ export function PlazaChrome(props: {
               <X className="size-4" />
             </button>
           </div>
+          {card.peer ? <SafetyPanel peer={card.peer} name={card.title} /> : null}
           <div className="mt-2 flex flex-wrap gap-2">
             {card.greet ? (
               <button type="button" className={ghost} onClick={() => props.onGreet(card.id)}>
@@ -470,6 +471,62 @@ function Joystick({ joy }: { joy: MutableRefObject<Joy> }) {
   );
 }
 
+const VERIFIED_KEY = "neon-lane:dtls-verified";
+
+function readVerified(): Record<string, string> {
+  try {
+    return JSON.parse(localStorage.getItem(VERIFIED_KEY) || "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * 🔒 安全碼: both players see the same code only if nobody in the middle
+ * swapped the DTLS certificates. Marking "對過" remembers this peer id +
+ * fingerprint on this device; a later different fingerprint for the same id
+ * shows a warning.
+ */
+function SafetyPanel({ peer, name }: { peer: PeerInfo; name: string }) {
+  const [verified, setVerified] = useState(readVerified);
+  if (peer.connectionState !== "connected" && !peer.safetyCode) return null;
+  const known = verified[peer.id];
+  const ok = Boolean(peer.remoteFingerprint) && known === peer.remoteFingerprint;
+  const changed = Boolean(known && peer.remoteFingerprint && known !== peer.remoteFingerprint);
+  const mark = (on: boolean) => {
+    const next = { ...readVerified() };
+    if (on && peer.remoteFingerprint) next[peer.id] = peer.remoteFingerprint;
+    else delete next[peer.id];
+    try {
+      localStorage.setItem(VERIFIED_KEY, JSON.stringify(next));
+    } catch {
+      // Private mode: verification just isn't remembered.
+    }
+    setVerified(next);
+  };
+  return (
+    <div data-testid="safety-panel" className="mt-2 rounded-xl border border-line bg-ink/60 px-3 py-2">
+      <p className="text-xs text-cream-dim">🔒 安全碼{ok ? " · ✅ 對過" : ""}</p>
+      {peer.safetyCode ? (
+        <>
+          <p data-testid="safety-code" className="font-mono text-base tracking-wider">{peer.safetyCode}</p>
+          <p data-testid="safety-emoji" className="text-lg leading-tight">{peer.safetyEmoji}</p>
+          {changed ? (
+            <p className="text-xs text-amber">⚠️ {name} 嘅安全碼同上次對嘅唔同（可能重新連線，或者有人喺中間）。再對一次先好傳私密嘢。</p>
+          ) : (
+            <p className="text-xs text-cream-dim">叫 {name} 睇佢見到嘅數字同圖案，一樣就安全。唔同就唔好傳私密嘢。</p>
+          )}
+          <button type="button" className="mt-1 text-xs text-jade underline" onClick={() => mark(!ok)}>
+            {ok ? "取消已對" : "一樣，標記為對過"}
+          </button>
+        </>
+      ) : (
+        <p className="text-xs text-cream-dim">計緊安全碼…</p>
+      )}
+    </div>
+  );
+}
+
 function PeopleSheet(props: Parameters<typeof PlazaChrome>[0] & { tick: number; onClose: () => void }) {
   const rows = rowsAround(props, props.tick);
   return (
@@ -587,7 +644,7 @@ function rowsAround(props: Parameters<typeof PlazaChrome>[0], _tick: number) {
     return {
       id: peer.id,
       name: pose?.name || peer.name || "街坊",
-      meta: dist === null ? state : `${state} · ${dist.toFixed(0)} 米`,
+      meta: `${dist === null ? state : `${state} · ${dist.toFixed(0)} 米`}${peer.safetyCode ? ` · 🔒 ${peer.safetyCode}` : ""}`,
       dist: dist ?? 99,
     };
   });
@@ -598,11 +655,11 @@ function describeSelection(props: Parameters<typeof PlazaChrome>[0], _tick: numb
   const id = props.selected;
   if (!id) return null;
   if (id === "self") {
-    return { id, title: props.profile.name, detail: "呢個係你", greet: false, walk: false, friendId: "", dye: props.profile.dye, canPass: false };
+    return { id, title: props.profile.name, detail: "呢個係你", greet: false, walk: false, friendId: "", dye: props.profile.dye, canPass: false, peer: null };
   }
   const npc = NPCS.find((n) => n.id === id);
   if (npc) {
-    return { id, title: npc.name, detail: "常客 · 只存在你部機", greet: true, walk: true, friendId: "", dye: npc.dye, canPass: false };
+    return { id, title: npc.name, detail: "常客 · 只存在你部機", greet: true, walk: true, friendId: "", dye: npc.dye, canPass: false, peer: null };
   }
   const pose = props.remotes.current.get(id);
   const peer = props.peers.find((p) => p.id === id);
@@ -617,6 +674,7 @@ function describeSelection(props: Parameters<typeof PlazaChrome>[0], _tick: numb
     friendId: pose?.profileId && pose.profileId !== props.profile.id ? pose.profileId : "",
     dye: pose?.dye ?? 0,
     canPass: Boolean(pose) && dist !== null && dist <= PASS_RANGE && peer?.connectionState === "connected",
+    peer: peer ?? null,
   };
 }
 
