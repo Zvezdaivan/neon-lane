@@ -9,6 +9,8 @@
  * rolls back and accepts, so pairs converge without wedging.
  */
 
+import { computeSafetyCode, normalizeFingerprint, parseSdpFingerprints, type Fingerprint } from "./safety-code";
+
 export type SignalKind = "offer" | "answer" | "ice";
 
 /**
@@ -39,6 +41,16 @@ export interface PeerInfo {
   candidateType: string | null;
   /** Data-channel ping RTT (ms), measured every 2s once connected. */
   rttMs: number | null;
+  /**
+   * Symmetric DTLS safety code for this pair ("1234 5678 9012"), identical on
+   * both sides unless something (e.g. the signaling relay) swapped the
+   * certificate fingerprints. Null until connected / if extraction failed.
+   */
+  safetyCode: string | null;
+  /** Emoji rendering of the same hash, for kids who prefer pictures. */
+  safetyEmoji: string | null;
+  /** Remote DTLS fingerprint ("sha-256 AB:CD:…") the code was derived from. */
+  remoteFingerprint: string | null;
 }
 
 export interface P2PRoomOptions {
@@ -261,6 +273,9 @@ export class P2PRoom {
         connectionState: pc.connectionState,
         candidateType: null,
         rttMs: null,
+        safetyCode: null,
+        safetyEmoji: null,
+        remoteFingerprint: null,
       },
     };
     this.peers.set(peerId, slot);
@@ -277,6 +292,7 @@ export class P2PRoom {
         slot.recoveryAttempts = 0;
         slot.terminal = false;
         void this.readCandidateType(slot);
+        void this.readSafetyCode(slot);
       }
       this.emitPeers();
       if (pc.connectionState === "failed") {
@@ -556,12 +572,59 @@ export class P2PRoom {
     }
   }
 
+  /**
+   * Derive the pair's safety code from the DTLS fingerprints actually in use.
+   * SDP `a=fingerprint:` lines first (what was negotiated), then getStats()
+   * certificate stats as a fallback. Runs on every "connected" of this pc;
+   * a recreated pc gets a fresh slot (and fresh DTLS identity) → new code.
+   */
+  private async readSafetyCode(slot: PeerSlot): Promise<void> {
+    const pc = slot.pc;
+    try {
+      let local: Fingerprint | undefined = parseSdpFingerprints(pc.currentLocalDescription?.sdp ?? pc.localDescription?.sdp)[0];
+      let remote: Fingerprint | undefined = parseSdpFingerprints(pc.currentRemoteDescription?.sdp ?? pc.remoteDescription?.sdp)[0];
+      if (!local || !remote) {
+        const fromStats = await this.statsFingerprints(pc);
+        local ??= fromStats.local;
+        remote ??= fromStats.remote;
+      }
+      if (!local || !remote || this.closed || this.peers.get(slot.info.id) !== slot) return;
+      const code = await computeSafetyCode(local, remote);
+      if (this.closed || this.peers.get(slot.info.id) !== slot) return;
+      slot.info.safetyCode = code.digits;
+      slot.info.safetyEmoji = code.emoji;
+      slot.info.remoteFingerprint = `${remote.algorithm} ${remote.value}`;
+      this.emitPeers();
+    } catch (err) {
+      console.warn("[p2p] could not derive DTLS safety code", err);
+    }
+  }
+
+  private async statsFingerprints(pc: RTCPeerConnection): Promise<{ local?: Fingerprint; remote?: Fingerprint }> {
+    const stats = await pc.getStats();
+    const out: { local?: Fingerprint; remote?: Fingerprint } = {};
+    const cert = (id: unknown): Fingerprint | undefined => {
+      const c = typeof id === "string" ? (stats.get(id) as { fingerprint?: string; fingerprintAlgorithm?: string } | undefined) : undefined;
+      return c?.fingerprint && c.fingerprintAlgorithm
+        ? normalizeFingerprint({ algorithm: c.fingerprintAlgorithm, value: c.fingerprint })
+        : undefined;
+    };
+    stats.forEach((s) => {
+      if (s.type !== "transport") return;
+      const t = s as { localCertificateId?: string; remoteCertificateId?: string; dtlsState?: string };
+      if (out.local && out.remote && t.dtlsState !== "connected") return;
+      out.local = cert(t.localCertificateId) ?? out.local;
+      out.remote = cert(t.remoteCertificateId) ?? out.remote;
+    });
+    return out;
+  }
+
   private emitPeers(): void {
     // Only notify when something observable actually changed — React state
     // setters otherwise re-render consumers on every poll/ping.
     const list = this.peerList();
     const fingerprint = JSON.stringify(
-      list.map((p) => [p.id, p.name, p.connectionState, p.candidateType, p.rttMs]),
+      list.map((p) => [p.id, p.name, p.connectionState, p.candidateType, p.rttMs, p.safetyCode]),
     );
     if (fingerprint === this.lastPeersFingerprint) return;
     this.lastPeersFingerprint = fingerprint;
