@@ -475,7 +475,13 @@ const VERIFIED_KEY = "neon-lane:dtls-verified";
 
 function readVerified(): Record<string, string> {
   try {
-    return JSON.parse(localStorage.getItem(VERIFIED_KEY) || "{}") as Record<string, string>;
+    const raw: unknown = JSON.parse(localStorage.getItem(VERIFIED_KEY) || "{}");
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (typeof v === "string") out[k] = v;
+    }
+    return out;
   } catch {
     return {};
   }
@@ -489,7 +495,7 @@ function readVerified(): Record<string, string> {
  */
 function SafetyPanel({ peer, name }: { peer: PeerInfo; name: string }) {
   const [verified, setVerified] = useState(readVerified);
-  if (peer.connectionState !== "connected" && !peer.safetyCode) return null;
+  const connected = peer.connectionState === "connected";
   const known = verified[peer.id];
   const ok = Boolean(peer.remoteFingerprint) && known === peer.remoteFingerprint;
   const changed = Boolean(known && peer.remoteFingerprint && known !== peer.remoteFingerprint);
@@ -507,7 +513,9 @@ function SafetyPanel({ peer, name }: { peer: PeerInfo; name: string }) {
   return (
     <div data-testid="safety-panel" className="mt-2 rounded-xl border border-line bg-ink/60 px-3 py-2">
       <p className="text-xs text-cream-dim">🔒 安全碼{ok ? " · ✅ 對過" : ""}</p>
-      {peer.safetyCode ? (
+      {!connected ? (
+        <p className="text-xs text-cream-dim">未連上，連上咗先有安全碼。</p>
+      ) : peer.safetyCode ? (
         <>
           <p data-testid="safety-code" className="font-mono text-base tracking-wider">{peer.safetyCode}</p>
           <p data-testid="safety-emoji" className="text-lg leading-tight">{peer.safetyEmoji}</p>
@@ -521,7 +529,11 @@ function SafetyPanel({ peer, name }: { peer: PeerInfo; name: string }) {
           </button>
         </>
       ) : (
-        <p className="text-xs text-cream-dim">計緊安全碼…</p>
+        peer.safetyError ? (
+          <p data-testid="safety-error" className="text-xs text-amber">讀唔到安全碼，等陣會自動再試。未對到之前唔好傳私密嘢。</p>
+        ) : (
+          <p className="text-xs text-cream-dim">計緊安全碼…</p>
+        )
       )}
     </div>
   );
@@ -644,7 +656,7 @@ function rowsAround(props: Parameters<typeof PlazaChrome>[0], _tick: number) {
     return {
       id: peer.id,
       name: pose?.name || peer.name || "街坊",
-      meta: `${dist === null ? state : `${state} · ${dist.toFixed(0)} 米`}${peer.safetyCode ? ` · 🔒 ${peer.safetyCode}` : ""}`,
+      meta: `${dist === null ? state : `${state} · ${dist.toFixed(0)} 米`}${peer.connectionState === "connected" && peer.safetyCode ? ` · 🔒 ${peer.safetyCode}` : ""}`,
       dist: dist ?? 99,
     };
   });

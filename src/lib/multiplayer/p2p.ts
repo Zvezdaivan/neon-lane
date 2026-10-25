@@ -49,6 +49,8 @@ export interface PeerInfo {
   safetyCode: string | null;
   /** Emoji rendering of the same hash, for kids who prefer pictures. */
   safetyEmoji: string | null;
+  /** True once fingerprint extraction failed after retries (retried by the watchdog). */
+  safetyError: boolean;
   /** Remote DTLS fingerprint ("sha-256 AB:CD:…") the code was derived from. */
   remoteFingerprint: string | null;
 }
@@ -84,7 +86,14 @@ interface PeerSlot {
   recreatedForOffer?: boolean;
   info: PeerInfo;
   pingSentAt?: number;
+  /** A safety-code read is in flight (avoids overlapping watchdog retries). */
+  readingSafety?: boolean;
+  lastSafetyTryAt?: number;
 }
+
+const SAFETY_TRIES = 3;
+const SAFETY_RETRY_MS = 1000;
+const SAFETY_REARM_MS = 10_000;
 
 const FAST_POLL_MS = 400;
 const IDLE_POLL_MS = 2000;
@@ -274,6 +283,7 @@ export class P2PRoom {
         candidateType: null,
         rttMs: null,
         safetyCode: null,
+        safetyError: false,
         safetyEmoji: null,
         remoteFingerprint: null,
       },
@@ -527,6 +537,14 @@ export class P2PRoom {
         if (live === "connecting" || live === "connected") slot.lastProgressAt = now;
         this.emitPeers();
       }
+      if (
+        live === "connected" &&
+        !slot.info.safetyCode &&
+        !slot.readingSafety &&
+        now - (slot.lastSafetyTryAt ?? 0) > SAFETY_REARM_MS
+      ) {
+        void this.readSafetyCode(slot);
+      }
       if (slot.terminal || live === "connected") continue;
       if (now - slot.lastProgressAt <= STALL_MS) continue;
       if (slot.recoveryAttempts >= MAX_RECOVERY_ATTEMPTS) {
@@ -579,24 +597,41 @@ export class P2PRoom {
    * a recreated pc gets a fresh slot (and fresh DTLS identity) → new code.
    */
   private async readSafetyCode(slot: PeerSlot): Promise<void> {
+    if (slot.readingSafety) return;
+    slot.readingSafety = true;
+    slot.lastSafetyTryAt = Date.now();
     const pc = slot.pc;
+    const live = () => !this.closed && this.peers.get(slot.info.id) === slot;
     try {
-      let local: Fingerprint | undefined = parseSdpFingerprints(pc.currentLocalDescription?.sdp ?? pc.localDescription?.sdp)[0];
-      let remote: Fingerprint | undefined = parseSdpFingerprints(pc.currentRemoteDescription?.sdp ?? pc.remoteDescription?.sdp)[0];
-      if (!local || !remote) {
-        const fromStats = await this.statsFingerprints(pc);
-        local ??= fromStats.local;
-        remote ??= fromStats.remote;
+      for (let attempt = 0; attempt < SAFETY_TRIES; attempt++) {
+        if (attempt > 0) await new Promise((r) => setTimeout(r, SAFETY_RETRY_MS));
+        if (!live()) return;
+        try {
+          let local: Fingerprint | undefined = parseSdpFingerprints(pc.currentLocalDescription?.sdp ?? pc.localDescription?.sdp)[0];
+          let remote: Fingerprint | undefined = parseSdpFingerprints(pc.currentRemoteDescription?.sdp ?? pc.remoteDescription?.sdp)[0];
+          if (!local || !remote) {
+            const fromStats = await this.statsFingerprints(pc);
+            local ??= fromStats.local;
+            remote ??= fromStats.remote;
+          }
+          if (!local || !remote) throw new Error("no DTLS fingerprint in SDP or stats");
+          const code = await computeSafetyCode(local, remote);
+          if (!live()) return;
+          slot.info.safetyCode = code.digits;
+          slot.info.safetyEmoji = code.emoji;
+          slot.info.remoteFingerprint = `${remote.algorithm} ${remote.value}`;
+          slot.info.safetyError = false;
+          this.emitPeers();
+          return;
+        } catch (err) {
+          if (attempt === SAFETY_TRIES - 1) console.warn("[p2p] could not derive DTLS safety code", err);
+        }
       }
-      if (!local || !remote || this.closed || this.peers.get(slot.info.id) !== slot) return;
-      const code = await computeSafetyCode(local, remote);
-      if (this.closed || this.peers.get(slot.info.id) !== slot) return;
-      slot.info.safetyCode = code.digits;
-      slot.info.safetyEmoji = code.emoji;
-      slot.info.remoteFingerprint = `${remote.algorithm} ${remote.value}`;
+      if (!live()) return;
+      slot.info.safetyError = true;
       this.emitPeers();
-    } catch (err) {
-      console.warn("[p2p] could not derive DTLS safety code", err);
+    } finally {
+      slot.readingSafety = false;
     }
   }
 
@@ -624,7 +659,7 @@ export class P2PRoom {
     // setters otherwise re-render consumers on every poll/ping.
     const list = this.peerList();
     const fingerprint = JSON.stringify(
-      list.map((p) => [p.id, p.name, p.connectionState, p.candidateType, p.rttMs, p.safetyCode]),
+      list.map((p) => [p.id, p.name, p.connectionState, p.candidateType, p.rttMs, p.safetyCode, p.safetyError]),
     );
     if (fingerprint === this.lastPeersFingerprint) return;
     this.lastPeersFingerprint = fingerprint;
