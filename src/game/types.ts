@@ -14,8 +14,7 @@ export type Pose = {
   talk: boolean;
   /** Inside the confessional (quiet reflection). */
   pray?: boolean;
-  /** Confessional claim time (ms) for the deterministic one-occupant tie-break. */
-  prayAt?: number;
+
   profileId: string;
 };
 

@@ -28,7 +28,7 @@ function WorldInner(props: WorldProps) {
       onPointerMissed={() => props.onPick(null)}
     >
       <MarketSquare />
-      <Church player={props.player} remotes={props.remotes} />
+      <Church player={props.player} />
       <Driver {...props} />
       <ChaseCam player={props.player} camYaw={props.camYaw} live={props.live} />
       <OrbitDrag camYaw={props.camYaw} />
@@ -121,7 +121,7 @@ function Driver(props: WorldProps) {
       const at = npcAt(npc, t);
       obs.push({ x: at.x, z: at.z, r: 0.55 });
     }
-    for (const pose of props.remotes.current.values()) obs.push({ x: pose.x, z: pose.z, r: 0.5 });
+    for (const pose of props.remotes.current.values()) if (!pose.pray) obs.push({ x: pose.x, z: pose.z, r: 0.5 });
     const next = stepWalker(body, props.camYaw.current, f, s, dt, obs, PLAZA_R);
     body.x = next.x;
     body.z = next.z;
@@ -250,7 +250,6 @@ function NetPump(props: WorldProps) {
       emote: p.emote,
       talk: props.talking.current,
       pray: sanctuary.mode === "booth",
-      prayAt: sanctuary.claimAt,
       profileId: props.profile.id,
     });
   });
@@ -325,10 +324,16 @@ function RemoteAvatar({
   const motion = useRef<Motion>({ walking: false, emote: "", talk: false });
   const look = useRef({ name: "…", dye: 0, hair: 0, friend: false });
   const [, setRev] = useState(0);
+  // Confessional = private instance: a player inside is invisible to everyone, and
+  // while we are inside we see nobody else.
+  const [hidden, setHidden] = useState(false);
   useFrame((_, dt) => {
     const pose = store.current.get(id);
     const g = group.current;
     if (!pose || !g) return;
+    const hide = pose.pray === true || sanctuary.mode === "booth";
+    if (hide !== hidden) setHidden(hide);
+    g.visible = !hide;
     const d = Math.min(dt, 0.1);
     if (!snapped.current || Math.hypot(pose.x - g.position.x, pose.z - g.position.z) > 6) {
       g.position.set(pose.x, 0, pose.z);
@@ -366,12 +371,14 @@ function RemoteAvatar({
       }}
     >
       <AvatarMesh dye={shown.dye} hair={shown.hair} motion={motion} />
-      <Nameplate
-        name={shown.name}
-        sub={shown.friend ? "好友" : undefined}
-        bubble={bubble}
-        selected={selected}
-      />
+      {hidden ? null : (
+        <Nameplate
+          name={shown.name}
+          sub={shown.friend ? "好友" : undefined}
+          bubble={bubble}
+          selected={selected}
+        />
+      )}
     </group>
   );
 }
@@ -470,7 +477,6 @@ export function readPose(data: unknown): Pose | null {
     emote,
     talk: msg.talk === true,
     pray: msg.pray === true,
-    prayAt: typeof msg.prayAt === "number" && Number.isFinite(msg.prayAt) && msg.prayAt > 0 ? msg.prayAt : undefined,
     profileId: typeof msg.profileId === "string" ? msg.profileId.slice(0, 64) : "",
   };
 }

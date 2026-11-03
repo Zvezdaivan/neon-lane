@@ -49,6 +49,7 @@ export class HymnPlayer {
   private master: GainNode | null = null;
   private timer = 0;
   private teardown = 0;
+  private cleanup: (() => void) | null = null;
   private hymn = 0;
   private idx = 0;
   private nextAt = 0;
@@ -57,6 +58,17 @@ export class HymnPlayer {
   volume = 0.6;
   muted = false;
   active = 0; // voices currently sounding (for tests)
+  /** Every oscillator not yet ended, across sessions (for leak tests). */
+  live = 0;
+  private voices = new Set<OscillatorNode>();
+  private track(o: OscillatorNode, set?: Set<OscillatorNode>) {
+    this.live++;
+    set?.add(o);
+    o.onended = () => {
+      this.live = Math.max(0, this.live - 1);
+      if (set?.delete(o)) this.active = Math.max(0, this.active - (set === this.voices ? 1 : 0));
+    };
+  }
   onHymn: (name: string) => void = () => {};
 
   get playing() {
@@ -67,8 +79,11 @@ export class HymnPlayer {
   start() {
     if (this.timer) return;
     // Cancel a pending fade-out teardown from a recent stop(), so it can't suspend the new session.
-    window.clearTimeout(this.teardown);
-    this.teardown = 0;
+    if (this.teardown) {
+      window.clearTimeout(this.teardown);
+      this.teardown = 0;
+      this.cleanup?.(); // tear the faded-out session down now so silent sources don't pile up
+    }
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     const ctx = (this.ctx ??= new Ctx());
     void ctx.resume();
@@ -101,12 +116,28 @@ export class HymnPlayer {
     if (ctx && m) {
       m.gain.cancelScheduledValues(ctx.currentTime);
       m.gain.setTargetAtTime(0, ctx.currentTime, 0.15);
-      const pads = this.pad;
-      window.clearTimeout(this.teardown);
+      const pads = [...this.pad];
+      const vs = this.voices;
+      this.voices = new Set();
+      if (this.teardown) {
+        window.clearTimeout(this.teardown);
+        this.cleanup?.();
+      }
+      const cleanup = () => {
+        this.cleanup = null;
+        [...pads, ...vs].forEach((o) => {
+          try {
+            o.stop();
+          } catch {
+            /* already stopped */
+          }
+        });
+        m.disconnect();
+      };
+      this.cleanup = cleanup;
       this.teardown = window.setTimeout(() => {
         this.teardown = 0;
-        pads.forEach((o) => o.stop());
-        m.disconnect();
+        cleanup();
         if (!this.timer) void ctx.suspend(); // re-check: never suspend a restarted session
       }, 700);
     }
@@ -148,6 +179,7 @@ export class HymnPlayer {
       o.type = "sine";
       o.frequency.value = hz(m);
       o.connect(pg);
+      this.track(o);
       o.start(at);
       return o;
     });
@@ -193,9 +225,7 @@ export class HymnPlayer {
       o.start(t);
       o.stop(end);
       this.active++;
-      o.onended = () => {
-        this.active = Math.max(0, this.active - 1);
-      };
+      this.track(o, this.voices);
     }
   }
 }

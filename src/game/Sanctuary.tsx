@@ -7,7 +7,7 @@ import { BIBLE, BIBLE_VERSIONS, type BibleVersion } from "./bible-data";
 import { HymnPlayer } from "./hymns";
 import { OPEN_BIBLE_EVENT, sanctuary, type SanctuaryMode } from "./sanctuary-state";
 import { BOOTH_EXIT, LECTERN } from "./sim";
-import type { LocalBody, Pose } from "./types";
+import type { LocalBody } from "./types";
 
 type Near = "" | "bible" | "booth";
 const NEAR_R = 1.9;
@@ -38,11 +38,6 @@ function initialVersion(): BibleVersion {
   return pickBibleVersion(saved, langs);
 }
 
-/** True if claim (atA, idA) beats claim (atB, idB). */
-function boothClaimBeats(atA: number, idA: string, atB: number, idB: string) {
-  if (atA !== atB) return atA < atB;
-  return idA < idB;
-}
 function isTyping(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
@@ -58,17 +53,14 @@ declare global {
 export function Sanctuary({
   entered,
   player,
-  remotes,
   held,
 }: {
   entered: boolean;
   player: MutableRefObject<LocalBody>;
-  remotes: MutableRefObject<Map<string, Pose>>;
   held: MutableRefObject<Set<string>>;
 }) {
   const [mode, setMode] = useState<SanctuaryMode>("none");
   const [near, setNear] = useState<Near>("");
-  const [occupied, setOccupied] = useState(false);
   const [chapter, setChapter] = useState(0);
   const [version, setVersionState] = useState<BibleVersion>(initialVersion);
   const setVersion = (v: BibleVersion) => {
@@ -83,8 +75,8 @@ export function Sanctuary({
   const [vol, setVol] = useState(0.6);
   const [muted, setMuted] = useState(false);
   const music = useRef<HymnPlayer | null>(null);
-  const st = useRef({ mode, near, occupied });
-  st.current = { mode, near, occupied };
+  const st = useRef({ mode, near });
+  st.current = { mode, near };
 
   useEffect(() => sanctuary.subscribe(() => setMode(sanctuary.mode)), []);
 
@@ -96,20 +88,9 @@ export function Sanctuary({
       const dB = Math.hypot(p.x - LECTERN.x, p.z - LECTERN.z);
       const dC = Math.hypot(p.x - BOOTH_EXIT.x, p.z - BOOTH_EXIT.z);
       setNear(dB < NEAR_R ? "bible" : dC < NEAR_R ? "booth" : "");
-      let occ = false;
-      let beaten = false;
-      for (const [id, pose] of remotes.current) {
-        if (!pose.pray) continue;
-        occ = true;
-        // Deterministic tie-break, identical on every client: earlier claim wins, then lower peer id.
-        if (sanctuary.mode === "booth" && boothClaimBeats(pose.prayAt ?? Number.MAX_SAFE_INTEGER, id, sanctuary.claimAt, sanctuary.selfId))
-          beaten = true;
-      }
-      if (beaten) act.current.close(); // ejected: hymn stops, back outside, prompt shows 有人靜思中…
-      setOccupied(occ);
     }, 150);
     return () => window.clearInterval(id);
-  }, [entered, player, remotes]);
+  }, [entered, player]);
 
   const open = (next: SanctuaryMode) => {
     held.current.clear();
@@ -151,7 +132,7 @@ export function Sanctuary({
       }
       if (e.code !== "KeyE") return;
       if (s.near === "bible") act.current.open("bible");
-      else if (s.near === "booth" && !s.occupied) act.current.open("booth");
+      else if (s.near === "booth") act.current.open("booth");
     };
     const click = () => {
       const p = player.current;
@@ -174,6 +155,7 @@ export function Sanctuary({
         state: music.current?.ctx?.state ?? "none",
         playing: music.current?.playing ?? false,
         voices: music.current?.active ?? 0,
+        live: music.current?.live ?? 0,
         muted: music.current?.muted ?? false,
         hymn: music.current ? hymn : "",
       }),
@@ -197,9 +179,6 @@ export function Sanctuary({
     <>
       {mode === "none" && near ? (
         <div className="pointer-events-none absolute inset-x-0 top-[22%] z-30 flex justify-center">
-          {near === "booth" && occupied ? (
-            <div className="rounded-full bg-ink/80 px-5 py-2.5 text-base font-bold text-cream shadow-lg">有人靜思中…</div>
-          ) : (
             <button
               type="button"
               data-testid="sanctuary-prompt"
@@ -208,7 +187,6 @@ export function Sanctuary({
             >
               {near === "bible" ? "📖 按 E 打開聖經" : "🕯️ 按 E 入去靜思"}
             </button>
-          )}
         </div>
       ) : null}
 

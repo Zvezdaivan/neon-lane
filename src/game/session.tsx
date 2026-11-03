@@ -462,7 +462,7 @@ export function NeonLane() {
           onSys={onSys}
         />
       ) : null}
-      <Sanctuary entered={entered} player={player} remotes={remotes} held={held} />
+      <Sanctuary entered={entered} player={player} held={held} />
       <PlazaChrome
         booted={booted}
         entered={entered}
@@ -550,7 +550,6 @@ function RoomSession(props: {
   useEffect(() => p2p.onMessage((from, data, channel) => onNet.current(from, data, channel)), [p2p.onMessage]);
 
   useEffect(() => {
-    sanctuary.setSelfId(p2p.selfId);
     onRoster.current({ peers: p2p.peers, joined: p2p.joined, selfId: p2p.selfId });
   }, [p2p.peers, p2p.joined, p2p.selfId]);
 

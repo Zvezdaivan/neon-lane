@@ -6,8 +6,7 @@ export type SanctuaryMode = "none" | "bible" | "booth";
 
 const listeners = new Set<() => void>();
 let mode: SanctuaryMode = "none";
-let claimAt = 0;
-let selfId = "";
+
 
 export const sanctuary = {
   get mode() {
@@ -17,20 +16,8 @@ export const sanctuary = {
   get modal() {
     return mode !== "none";
   },
-  /** ms timestamp of our confessional claim (0 when not in the booth); synced in the pose. */
-  get claimAt() {
-    return claimAt;
-  },
-  get selfId() {
-    return selfId;
-  },
-  setSelfId(id: string) {
-    selfId = id;
-  },
   set(next: SanctuaryMode) {
     if (next === mode) return;
-    if (next === "booth") claimAt = Date.now();
-    else if (mode === "booth") claimAt = 0;
     mode = next;
     for (const fn of listeners) fn();
   },

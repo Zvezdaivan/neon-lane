@@ -13,7 +13,7 @@ import * as THREE from "three";
 import { ALTAR_Z, BOOTH, CHURCH, insideChurch, LECTERN } from "./sim";
 import { PEW_ROWS } from "./world-data";
 import { OPEN_BIBLE_EVENT } from "./sanctuary-state";
-import type { LocalBody, Pose } from "./types";
+import type { LocalBody } from "./types";
 
 const { halfW: HW, front: FZ, back: BZ, wall: WT, doorHalfW: DW, doorH: DH, wallH: WH } = CHURCH;
 const LEN = FZ - BZ;
@@ -247,7 +247,7 @@ function Shell({ fadeRef }: { fadeRef: MutableRefObject<THREE.Group | null> }) {
   );
 }
 
-export function Church({ player, remotes }: { player: MutableRefObject<LocalBody>; remotes?: MutableRefObject<Map<string, Pose>> }) {
+export function Church({ player }: { player: MutableRefObject<LocalBody> }) {
   const fadeRef = useRef<THREE.Group | null>(null);
   const fade = useRef(1);
   useFrame((_, dt) => {
@@ -307,7 +307,7 @@ export function Church({ player, remotes }: { player: MutableRefObject<LocalBody
       <pointLight position={[0, 4.6, MIDZ + 1.5]} color="#ffcf8a" intensity={7} distance={18} decay={1.5} />
       <pointLight position={[0, 3.6, ALTAR_Z + 1]} color="#ffe2a8" intensity={5} distance={11} decay={1.6} />
       <Lectern />
-      <Confessional remotes={remotes} />
+      <Confessional />
     </group>
   );
 }
@@ -350,13 +350,7 @@ function Lectern() {
 }
 
 /** Rounded wooden confessional booth with a striped curtain doorway (+x). */
-function Confessional({ remotes }: { remotes?: MutableRefObject<Map<string, Pose>> }) {
-  const lamp = useRef<THREE.MeshBasicMaterial>(null);
-  useFrame(() => {
-    let busy = false;
-    if (remotes) for (const p of remotes.current.values()) if (p.pray) busy = true;
-    lamp.current?.color.set(busy ? "#ff5d73" : "#7bd389");
-  });
+function Confessional() {
   const { w, d, h } = BOOTH;
   return (
     <group position={[BOOTH.x, 0, BOOTH.z]}>
@@ -376,11 +370,11 @@ function Confessional({ remotes }: { remotes?: MutableRefObject<Map<string, Pose
           <meshToonMaterial color={i % 2 ? "#8338ec" : "#a465ff"} />
         </mesh>
       ))}
-      {/* Sign + availability lamp */}
+      {/* Sign + warm decorative lamp (no occupancy: every visitor gets a private booth) */}
       <Block p={[w / 2 + 0.02, h - 0.12, 0]} s={[0.06, 0.32, 1.2]} color="#fff1dc" r={0.04} />
       <mesh position={[w / 2 + 0.06, h - 0.12, 0.72]}>
         <sphereGeometry args={[0.09, 12, 10]} />
-        <meshBasicMaterial ref={lamp} color="#7bd389" toneMapped={false} />
+        <meshBasicMaterial color="#ffd27a" toneMapped={false} />
       </mesh>
     </group>
   );
