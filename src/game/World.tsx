@@ -250,6 +250,7 @@ function NetPump(props: WorldProps) {
       emote: p.emote,
       talk: props.talking.current,
       pray: sanctuary.mode === "booth",
+      prayAt: sanctuary.claimAt,
       profileId: props.profile.id,
     });
   });
@@ -469,6 +470,7 @@ export function readPose(data: unknown): Pose | null {
     emote,
     talk: msg.talk === true,
     pray: msg.pray === true,
+    prayAt: typeof msg.prayAt === "number" && Number.isFinite(msg.prayAt) && msg.prayAt > 0 ? msg.prayAt : undefined,
     profileId: typeof msg.profileId === "string" ? msg.profileId.slice(0, 64) : "",
   };
 }

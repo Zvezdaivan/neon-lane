@@ -38,6 +38,11 @@ function initialVersion(): BibleVersion {
   return pickBibleVersion(saved, langs);
 }
 
+/** True if claim (atA, idA) beats claim (atB, idB). */
+function boothClaimBeats(atA: number, idA: string, atB: number, idB: string) {
+  if (atA !== atB) return atA < atB;
+  return idA < idB;
+}
 function isTyping(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
   const tag = target.tagName;
@@ -92,7 +97,15 @@ export function Sanctuary({
       const dC = Math.hypot(p.x - BOOTH_EXIT.x, p.z - BOOTH_EXIT.z);
       setNear(dB < NEAR_R ? "bible" : dC < NEAR_R ? "booth" : "");
       let occ = false;
-      for (const pose of remotes.current.values()) if (pose.pray) occ = true;
+      let beaten = false;
+      for (const [id, pose] of remotes.current) {
+        if (!pose.pray) continue;
+        occ = true;
+        // Deterministic tie-break, identical on every client: earlier claim wins, then lower peer id.
+        if (sanctuary.mode === "booth" && boothClaimBeats(pose.prayAt ?? Number.MAX_SAFE_INTEGER, id, sanctuary.claimAt, sanctuary.selfId))
+          beaten = true;
+      }
+      if (beaten) act.current.close(); // ejected: hymn stops, back outside, prompt shows 有人靜思中…
       setOccupied(occ);
     }, 150);
     return () => window.clearInterval(id);

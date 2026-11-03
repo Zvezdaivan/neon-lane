@@ -48,6 +48,7 @@ export class HymnPlayer {
   ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private timer = 0;
+  private teardown = 0;
   private hymn = 0;
   private idx = 0;
   private nextAt = 0;
@@ -65,6 +66,9 @@ export class HymnPlayer {
   /** Call from a user gesture. */
   start() {
     if (this.timer) return;
+    // Cancel a pending fade-out teardown from a recent stop(), so it can't suspend the new session.
+    window.clearTimeout(this.teardown);
+    this.teardown = 0;
     const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     const ctx = (this.ctx ??= new Ctx());
     void ctx.resume();
@@ -98,10 +102,12 @@ export class HymnPlayer {
       m.gain.cancelScheduledValues(ctx.currentTime);
       m.gain.setTargetAtTime(0, ctx.currentTime, 0.15);
       const pads = this.pad;
-      window.setTimeout(() => {
+      window.clearTimeout(this.teardown);
+      this.teardown = window.setTimeout(() => {
+        this.teardown = 0;
         pads.forEach((o) => o.stop());
         m.disconnect();
-        void ctx.suspend();
+        if (!this.timer) void ctx.suspend(); // re-check: never suspend a restarted session
       }, 700);
     }
     this.pad = [];
