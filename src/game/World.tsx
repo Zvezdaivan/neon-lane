@@ -7,7 +7,8 @@ import { AvatarMesh, type Motion } from "./Avatar";
 import { MarketSquare } from "./Market";
 import { Church } from "./Church";
 import { JADE } from "./palette";
-import { CHURCH, insideChurch, PLAZA_R, stepWalker, wrapAngle, type Obstacle } from "./sim";
+import { sanctuary } from "./sanctuary-state";
+import { CHURCH, insideChurch, PLAZA_R, REMOTE_POS_LIMIT, stepWalker, wrapAngle, type Obstacle } from "./sim";
 import type { Pose, WorldProps } from "./types";
 import { HEAR_MAX } from "./voice";
 import { NPCS, npcAt, STATIC_OBSTACLES } from "./world-data";
@@ -27,7 +28,7 @@ function WorldInner(props: WorldProps) {
       onPointerMissed={() => props.onPick(null)}
     >
       <MarketSquare />
-      <Church player={props.player} />
+      <Church player={props.player} remotes={props.remotes} />
       <Driver {...props} />
       <ChaseCam player={props.player} camYaw={props.camYaw} live={props.live} />
       <OrbitDrag camYaw={props.camYaw} />
@@ -63,7 +64,7 @@ function Driver(props: WorldProps) {
   useFrame((_, dt) => {
     const body = props.player.current;
     if (body.emote && performance.now() > body.emoteUntil) body.emote = "";
-    if (!props.live) {
+    if (!props.live || sanctuary.modal) {
       body.speed = 0;
       return;
     }
@@ -248,6 +249,7 @@ function NetPump(props: WorldProps) {
       hair: props.profile.hair,
       emote: p.emote,
       talk: props.talking.current,
+      pray: sanctuary.mode === "booth",
       profileId: props.profile.id,
     });
   });
@@ -453,7 +455,7 @@ export function readPose(data: unknown): Pose | null {
   const z = num(msg.z);
   const yaw = num(msg.yaw);
   if (x === null || z === null || yaw === null) return null;
-  if (Math.abs(x) > 30 || Math.abs(z) > 30) return null;
+  if (Math.abs(x) > REMOTE_POS_LIMIT || Math.abs(z) > REMOTE_POS_LIMIT) return null;
   const emote =
     msg.emote === "wave" || msg.emote === "bow" || msg.emote === "dance" ? msg.emote : "";
   return {
@@ -466,6 +468,7 @@ export function readPose(data: unknown): Pose | null {
     hair: clampInt(msg.hair, 0, 3),
     emote,
     talk: msg.talk === true,
+    pray: msg.pray === true,
     profileId: typeof msg.profileId === "string" ? msg.profileId.slice(0, 64) : "",
   };
 }

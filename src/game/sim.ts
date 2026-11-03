@@ -8,14 +8,24 @@ export const SPAWN = { x: 0, z: 6.5, yaw: 0 };
  * ∪ the doorway corridor ∪ the nave box; walls are the gaps between them.
  */
 export const CHURCH = {
-  halfW: 3.8, // outer half-width (walls are 0.3 thick)
+  halfW: 5.7, // outer half-width (walls are 0.3 thick)
   front: -14.6, // façade centre line
-  back: -25.6, // back wall centre line
+  back: -31.1, // back wall centre line (keep within REMOTE_POS_LIMIT)
   wall: 0.3,
-  doorHalfW: 1.3,
-  doorH: 3,
-  wallH: 4.6,
+  doorHalfW: 1.6,
+  doorH: 3.6,
+  wallH: 6.6,
 } as const;
+
+/** Max |x|/|z| accepted from remote pose packets (covers plaza + church). */
+export const REMOTE_POS_LIMIT = 40;
+
+/** Interactive spots inside the church. */
+export const ALTAR_Z = CHURCH.back + 2.3;
+export const LECTERN = { x: 2.9, z: ALTAR_Z + 2.2, r: 0.45 };
+/** Confessional booth against the west (left) wall; door faces +x. */
+export const BOOTH = { x: -CHURCH.halfW + 1.05, z: ALTAR_Z + 2.4, w: 1.7, d: 2.3, h: 2.9 };
+export const BOOTH_EXIT = { x: BOOTH.x + BOOTH.w / 2 + 0.75, z: BOOTH.z };
 
 /** Player-centre is inside the nave (used for camera + roof fade). */
 export function insideChurch(x: number, z: number): boolean {

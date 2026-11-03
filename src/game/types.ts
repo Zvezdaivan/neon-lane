@@ -12,6 +12,8 @@ export type Pose = {
   hair: number;
   emote: Emote;
   talk: boolean;
+  /** Inside the confessional (quiet reflection). */
+  pray?: boolean;
   profileId: string;
 };
 

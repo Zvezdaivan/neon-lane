@@ -17,6 +17,8 @@ import { SPAWN } from "./sim";
 import type { AutoTarget, ChatLine, Emote, Joy, LocalBody, NetApi, Pose } from "./types";
 import { PlazaAudio, voiceGain } from "./voice";
 import { readPose, WorldCanvas } from "./World";
+import { Sanctuary } from "./Sanctuary";
+import { sanctuary } from "./sanctuary-state";
 import { NPCS, npcAt, PUBLIC_ROOM, makeRoomCode, roomFromCode, roomLabel, type PlaceMode } from "./world-data";
 
 function nid() {
@@ -271,6 +273,7 @@ export function NeonLane() {
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
       if (isTyping(event.target)) return;
+      if (sanctuary.modal) return;
       held.current.add(event.code);
       if (event.code.startsWith("Arrow")) event.preventDefault();
       if (!enteredRef.current || event.repeat) return;
@@ -459,6 +462,7 @@ export function NeonLane() {
           onSys={onSys}
         />
       ) : null}
+      <Sanctuary entered={entered} player={player} remotes={remotes} held={held} />
       <PlazaChrome
         booted={booted}
         entered={entered}
