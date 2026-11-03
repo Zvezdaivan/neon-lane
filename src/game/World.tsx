@@ -5,8 +5,9 @@ import type { Group, Mesh } from "three";
 import * as THREE from "three";
 import { AvatarMesh, type Motion } from "./Avatar";
 import { MarketSquare } from "./Market";
+import { Church } from "./Church";
 import { JADE } from "./palette";
-import { PLAZA_R, stepWalker, wrapAngle, type Obstacle } from "./sim";
+import { CHURCH, insideChurch, PLAZA_R, stepWalker, wrapAngle, type Obstacle } from "./sim";
 import type { Pose, WorldProps } from "./types";
 import { HEAR_MAX } from "./voice";
 import { NPCS, npcAt, STATIC_OBSTACLES } from "./world-data";
@@ -26,6 +27,7 @@ function WorldInner(props: WorldProps) {
       onPointerMissed={() => props.onPick(null)}
     >
       <MarketSquare />
+      <Church player={props.player} />
       <Driver {...props} />
       <ChaseCam player={props.player} camYaw={props.camYaw} live={props.live} />
       <OrbitDrag camYaw={props.camYaw} />
@@ -171,8 +173,17 @@ function ChaseCam({
         tz = o.z + dz * k2;
       }
     }
+    // Indoors: keep the camera inside the nave so walls never block the view
+    // (roof and façade fade out in Church.tsx).
+    let ty = height.current;
+    if (insideChurch(p.x, p.z)) {
+      const m = 0.45;
+      tx = Math.max(-CHURCH.halfW + m, Math.min(CHURCH.halfW - m, tx));
+      tz = Math.max(CHURCH.back + m, Math.min(CHURCH.front + 1.5, tz));
+      ty = Math.min(ty, CHURCH.wallH + 1.2);
+    }
     cam.position.x += (tx - cam.position.x) * k;
-    cam.position.y += (height.current - cam.position.y) * k;
+    cam.position.y += (ty - cam.position.y) * k;
     cam.position.z += (tz - cam.position.z) * k;
     look.set(p.x, live ? 1.45 : 0.3, p.z);
     cam.lookAt(look);

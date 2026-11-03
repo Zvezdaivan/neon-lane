@@ -15,6 +15,12 @@ export const STATIC_OBSTACLES: Obstacle[] = [
   { x: 6.2, z: -5.4, r: 0.38 },
   { x: -1.55, z: 12.15, r: 0.42 },
   { x: 1.55, z: 12.15, r: 0.42 },
+  // Church pews (two per side per row, centre aisle left clear) and altar.
+  ...[-16.6, -17.8, -19, -20.2, -21.4].flatMap((z) =>
+    [-2.8, -1.6, 1.6, 2.8].map((x) => ({ x, z, r: 0.4 })),
+  ),
+  { x: -0.7, z: -24.2, r: 0.6 },
+  { x: 0.7, z: -24.2, r: 0.6 },
 ];
 
 export type NpcDef = {

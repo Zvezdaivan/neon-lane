@@ -3,6 +3,68 @@ export const PLAYER_R = 0.42;
 export const PLAZA_R = 14.4;
 export const SPAWN = { x: 0, z: 6.5, yaw: 0 };
 
+/**
+ * Church on the north edge of the plaza (-z). Walkable space is the plaza disk
+ * ∪ the doorway corridor ∪ the nave box; walls are the gaps between them.
+ */
+export const CHURCH = {
+  halfW: 3.8, // outer half-width (walls are 0.3 thick)
+  front: -14.6, // façade centre line
+  back: -25.6, // back wall centre line
+  wall: 0.3,
+  doorHalfW: 1.3,
+  doorH: 3,
+  wallH: 4.6,
+} as const;
+
+/** Player-centre is inside the nave (used for camera + roof fade). */
+export function insideChurch(x: number, z: number): boolean {
+  return Math.abs(x) < CHURCH.halfW && z < CHURCH.front - 0.1 && z > CHURCH.back;
+}
+
+type Rect = { x0: number; x1: number; z0: number; z1: number };
+const NAVE_IN = CHURCH.halfW - CHURCH.wall / 2;
+const NAVE: Rect = {
+  x0: -NAVE_IN + PLAYER_R,
+  x1: NAVE_IN - PLAYER_R,
+  z0: CHURCH.back + CHURCH.wall / 2 + PLAYER_R,
+  z1: CHURCH.front - CHURCH.wall / 2 - PLAYER_R,
+};
+const DOOR: Rect = {
+  x0: -CHURCH.doorHalfW + PLAYER_R,
+  x1: CHURCH.doorHalfW - PLAYER_R,
+  z0: NAVE.z1 - 0.2,
+  z1: -13,
+};
+
+function inRect(r: Rect, x: number, z: number) {
+  return x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1;
+}
+
+/** Clamp a player centre to plaza ∪ doorway ∪ nave (nearest allowed point). */
+export function clampToWalkable(x: number, z: number, boundsR: number): { x: number; z: number } {
+  const br = boundsR - PLAYER_R;
+  const bd = Math.hypot(x, z);
+  if (bd <= br || inRect(DOOR, x, z) || inRect(NAVE, x, z)) return { x, z };
+  const cands = [
+    bd > 0 ? { x: (x / bd) * br, z: (z / bd) * br } : { x: 0, z: 0 },
+    ...[DOOR, NAVE].map((r) => ({
+      x: Math.min(r.x1, Math.max(r.x0, x)),
+      z: Math.min(r.z1, Math.max(r.z0, z)),
+    })),
+  ];
+  let best = cands[0];
+  let bestD = Infinity;
+  for (const c of cands) {
+    const d = Math.hypot(c.x - x, c.z - z);
+    if (d < bestD) {
+      bestD = d;
+      best = c;
+    }
+  }
+  return best;
+}
+
 export type Obstacle = { x: number; z: number; r: number };
 
 export type Walker = { x: number; z: number; yaw: number; speed: number };
@@ -67,12 +129,7 @@ export function stepWalker(
       }
     }
   }
-  const br = boundsR - PLAYER_R;
-  const bd = Math.hypot(x, z);
-  if (bd > br && bd > 0) {
-    x = (x / bd) * br;
-    z = (z / bd) * br;
-  }
+  ({ x, z } = clampToWalkable(x, z, boundsR));
   const moved = Math.hypot(x - w.x, z - w.z);
   const speed = dtC > 0 ? moved / dtC : 0;
   return { x, z, yaw, speed };
