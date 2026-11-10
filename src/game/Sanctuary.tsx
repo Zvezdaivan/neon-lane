@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import { BIBLE, BIBLE_VERSIONS, type BibleVersion } from "./bible-data";
 import { HymnPlayer } from "./hymns";
 import { OPEN_BIBLE_EVENT, sanctuary, type SanctuaryMode } from "./sanctuary-state";
+import { boothFlush, remoteVisibilitySnapshot } from "./World";
 import { BOOTH_EXIT, LECTERN } from "./sim";
 import type { LocalBody } from "./types";
 
@@ -46,7 +47,7 @@ function isTyping(target: EventTarget | null) {
 
 declare global {
   interface Window {
-    __sanctuaryTest?: { mode: () => SanctuaryMode; pos: () => { x: number; z: number }; near: () => Near; audio: () => { state: string; playing: boolean; voices: number; muted: boolean; hymn: string } };
+    __sanctuaryTest?: { mode: () => SanctuaryMode; pos: () => { x: number; z: number }; near: () => Near; audio: () => { state: string; playing: boolean; voices: number; live: number; muted: boolean; hymn: string }; peers: () => ReturnType<typeof remoteVisibilitySnapshot>; boothFlush: () => { at: number; pray: boolean }; warp: (x: number, z: number) => void };
   }
 }
 
@@ -159,6 +160,9 @@ export function Sanctuary({
         muted: music.current?.muted ?? false,
         hymn: music.current ? hymn : "",
       }),
+      peers: () => remoteVisibilitySnapshot(),
+      boothFlush: () => ({ at: boothFlush.at, pray: boothFlush.pray }),
+      warp: (x, z) => { player.current.x = x; player.current.z = z; },
     };
   }, [hymn, player]);
 

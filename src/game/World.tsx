@@ -13,6 +13,50 @@ import type { Pose, WorldProps } from "./types";
 import { HEAR_MAX } from "./voice";
 import { NPCS, npcAt, STATIC_OBSTACLES } from "./world-data";
 
+
+/** Live refs so a just-received pose can hide/show a remote avatar without waiting for a React render. */
+type RemoteView = {
+  group: Group | null;
+  label: HTMLElement | null;
+  store: WorldProps["remotes"];
+  hidden: boolean;
+  setHidden: (h: boolean) => void;
+};
+const remoteViews = new Map<string, RemoteView>();
+
+export function remoteShouldHide(pose: Pose | undefined): boolean {
+  return pose?.pray === true || sanctuary.mode === "booth";
+}
+
+/** Apply visibility immediately (group.visible + nameplate display). `id` omitted = every remote. */
+export function applyRemoteVisibility(id?: string) {
+  const ids = id ? [id] : [...remoteViews.keys()];
+  for (const key of ids) {
+    const v = remoteViews.get(key);
+    if (!v) continue;
+    const hide = remoteShouldHide(v.store.current.get(key));
+    if (v.group) v.group.visible = !hide;
+    if (v.label) v.label.style.display = hide ? "none" : "";
+    if (v.hidden !== hide) {
+      v.hidden = hide;
+      v.setHidden(hide);
+    }
+  }
+}
+
+export function remoteVisibilitySnapshot() {
+  return [...remoteViews.entries()].map(([id, v]) => {
+    const pose = v.store.current.get(id);
+    return {
+      id,
+      name: pose?.name ?? "",
+      pray: pose?.pray === true,
+      visible: v.group ? v.group.visible : !remoteShouldHide(pose),
+      label: v.label ? v.label.style.display !== "none" : null,
+    };
+  });
+}
+
 export function WorldCanvas(props: WorldProps) {
   if (typeof document === "undefined") return null;
   return <WorldInner {...props} />;
@@ -228,8 +272,62 @@ function OrbitDrag({ camYaw }: { camYaw: WorldProps["camYaw"] }) {
   return null;
 }
 
+let poseSeq = 0;
+
+function poseMsg(props: WorldProps) {
+  const p = props.player.current;
+  return {
+    k: "p" as const,
+    t: Date.now(),
+    seq: ++poseSeq,
+    x: round(p.x),
+    z: round(p.z),
+    yaw: round(p.yaw),
+    speed: round(p.speed),
+    name: props.profile.name,
+    dye: props.profile.dye,
+    hair: props.profile.hair,
+    emote: p.emote,
+    talk: props.talking.current,
+    pray: sanctuary.mode === "booth",
+    profileId: props.profile.id,
+  };
+}
+
+/** Last local booth transition, for hide/show latency tests (Date.now(), same machine). */
+export const boothFlush = { at: 0, pray: false };
+
 function NetPump(props: WorldProps) {
   const acc = useRef(0);
+  const lastPray = useRef(sanctuary.mode === "booth");
+  const propsRef = useRef(props);
+  propsRef.current = props;
+
+  const flushBooth = (pray: boolean) => {
+    const net = propsRef.current.net.current;
+    const msg = poseMsg(propsRef.current);
+    boothFlush.at = msg.t;
+    boothFlush.pray = pray;
+    if (net) {
+      // Immediate state-channel pose, outside the 15 Hz throttle.
+      net.broadcast(msg);
+      // Reliable one-shot so a dropped/reordered state packet can't leave the player visible.
+      net.send({ ...msg, k: "booth" });
+    }
+    acc.current = 0;
+    applyRemoteVisibility();
+  };
+
+  useEffect(() => {
+    lastPray.current = sanctuary.mode === "booth";
+    return sanctuary.subscribe(() => {
+      const pray = sanctuary.mode === "booth";
+      if (pray === lastPray.current) return;
+      lastPray.current = pray;
+      flushBooth(pray);
+    });
+  }, []);
+
   useFrame((_, dt) => {
     if (!props.live) return;
     acc.current += dt;
@@ -237,21 +335,7 @@ function NetPump(props: WorldProps) {
     acc.current = 0;
     const net = props.net.current;
     if (!net) return;
-    const p = props.player.current;
-    net.broadcast({
-      k: "p",
-      x: round(p.x),
-      z: round(p.z),
-      yaw: round(p.yaw),
-      speed: round(p.speed),
-      name: props.profile.name,
-      dye: props.profile.dye,
-      hair: props.profile.hair,
-      emote: p.emote,
-      talk: props.talking.current,
-      pray: sanctuary.mode === "booth",
-      profileId: props.profile.id,
-    });
+    net.broadcast(poseMsg(props));
   });
   return null;
 }
@@ -325,15 +409,37 @@ function RemoteAvatar({
   const look = useRef({ name: "…", dye: 0, hair: 0, friend: false });
   const [, setRev] = useState(0);
   // Confessional = private instance: a player inside is invisible to everyone, and
-  // while we are inside we see nobody else.
+  // while we are inside we see nobody else. Hide is applied immediately on packet
+  // receipt via applyRemoteVisibility; useFrame keeps it consistent as a fallback.
   const [hidden, setHidden] = useState(false);
+  const labelEl = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const view: RemoteView = {
+      group: group.current,
+      label: labelEl.current,
+      store,
+      hidden: false,
+      setHidden,
+    };
+    remoteViews.set(id, view);
+    applyRemoteVisibility(id);
+    return () => {
+      remoteViews.delete(id);
+    };
+  }, [id, store]);
   useFrame((_, dt) => {
     const pose = store.current.get(id);
     const g = group.current;
     if (!pose || !g) return;
-    const hide = pose.pray === true || sanctuary.mode === "booth";
-    if (hide !== hidden) setHidden(hide);
+    const hide = remoteShouldHide(pose);
     g.visible = !hide;
+    if (labelEl.current) labelEl.current.style.display = hide ? "none" : "";
+    const v = remoteViews.get(id);
+    if (v) {
+      v.group = g;
+      v.label = labelEl.current;
+    }
+    if (hide !== hidden) setHidden(hide);
     const d = Math.min(dt, 0.1);
     if (!snapped.current || Math.hypot(pose.x - g.position.x, pose.z - g.position.z) > 6) {
       g.position.set(pose.x, 0, pose.z);
@@ -371,14 +477,18 @@ function RemoteAvatar({
       }}
     >
       <AvatarMesh dye={shown.dye} hair={shown.hair} motion={motion} />
-      {hidden ? null : (
-        <Nameplate
-          name={shown.name}
-          sub={shown.friend ? "好友" : undefined}
-          bubble={bubble}
-          selected={selected}
-        />
-      )}
+      <Nameplate
+        name={shown.name}
+        sub={shown.friend ? "好友" : undefined}
+        bubble={bubble}
+        selected={selected}
+        hidden={hidden}
+        onEl={(el) => {
+          labelEl.current = el;
+          const v = remoteViews.get(id);
+          if (v) v.label = el;
+        }}
+      />
     </group>
   );
 }
@@ -424,12 +534,23 @@ function Nameplate({
   sub,
   bubble,
   selected,
+  hidden,
+  onEl,
 }: {
   name: string;
   sub?: string;
   bubble?: string;
   selected?: boolean;
+  hidden?: boolean;
+  onEl?: (el: HTMLElement | null) => void;
 }) {
+  const inner = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = inner.current?.parentElement ?? inner.current ?? null;
+    if (el) el.style.display = hidden ? "none" : "";
+    onEl?.(el);
+    return () => onEl?.(null);
+  }, [onEl, hidden]);
   return (
     <Html
       position={[0, 2.05, 0]}
@@ -438,7 +559,7 @@ function Nameplate({
       zIndexRange={[8, 0]}
       wrapperClass="nl-label"
     >
-      <div className="pointer-events-none w-max max-w-44 text-center">
+      <div ref={inner} className="pointer-events-none w-max max-w-44 text-center">
         {bubble ? (
           <div className="mb-1 rounded-xl bg-cream px-2.5 py-1 text-xs leading-snug text-ink">
             {bubble}

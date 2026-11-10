@@ -61,12 +61,14 @@ export class HymnPlayer {
   /** Every oscillator not yet ended, across sessions (for leak tests). */
   live = 0;
   private voices = new Set<OscillatorNode>();
+  private sources = new Set<OscillatorNode>();
   private track(o: OscillatorNode, set?: Set<OscillatorNode>) {
     this.live++;
+    this.sources.add(o);
     set?.add(o);
     o.onended = () => {
-      this.live = Math.max(0, this.live - 1);
-      if (set?.delete(o)) this.active = Math.max(0, this.active - (set === this.voices ? 1 : 0));
+      if (this.sources.delete(o)) this.live = Math.max(0, this.live - 1);
+      if (set?.delete(o)) this.active = Math.max(0, this.active - 1);
     };
   }
   onHymn: (name: string) => void = () => {};
@@ -126,11 +128,14 @@ export class HymnPlayer {
       const cleanup = () => {
         this.cleanup = null;
         [...pads, ...vs].forEach((o) => {
+          o.onended = null;
           try {
             o.stop();
           } catch {
             /* already stopped */
           }
+          // 'ended' may never fire once the context is suspended, so count them off now.
+          if (this.sources.delete(o)) this.live = Math.max(0, this.live - 1);
         });
         m.disconnect();
       };
