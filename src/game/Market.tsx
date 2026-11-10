@@ -533,6 +533,8 @@ function Houses() {
       const a = (k / n) * Math.PI * 2 + 0.1;
       // Leave an opening behind the gatehouse (south, +z).
       if (Math.abs(wrap(a - Math.PI / 2)) < 0.35) continue;
+      // ...and one in front of the church on the north edge (-z).
+      if (Math.abs(wrap(a + Math.PI / 2)) < 0.55) continue;
       const r = PLAZA_R + 8 + (k % 3) * 0.6;
       out.push({
         x: Math.cos(a) * r,
