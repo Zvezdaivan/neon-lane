@@ -16,12 +16,16 @@ import {
 import { SPAWN } from "./sim";
 import type { AutoTarget, ChatLine, Emote, Joy, LocalBody, NetApi, Pose } from "./types";
 import { PlazaAudio, voiceGain } from "./voice";
-import { readPose, WorldCanvas } from "./World";
+import { applyRemoteVisibility, readPose, WorldCanvas } from "./World";
+import { Sanctuary } from "./Sanctuary";
+import { sanctuary } from "./sanctuary-state";
 import { NPCS, npcAt, PUBLIC_ROOM, makeRoomCode, roomFromCode, roomLabel, type PlaceMode } from "./world-data";
 
 function nid() {
   return `c${Math.random().toString(36).slice(2, 10)}`;
 }
+
+const poseStamp = new Map<string, { t: number; seq: number }>();
 
 function isTyping(target: EventTarget | null) {
   if (!(target instanceof HTMLElement)) return false;
@@ -187,12 +191,20 @@ export function NeonLane() {
     if (passRef.current?.onMessage(from, data)) return;
     if (!data || typeof data !== "object") return;
     const msg = data as Record<string, unknown>;
-    if (channel === "state" && msg.k === "p") {
+    if ((channel === "state" && msg.k === "p") || msg.k === "booth") {
       const pose = readPose(data);
       if (!pose) return;
+      const stamp = typeof msg.t === "number" && Number.isFinite(msg.t) ? msg.t : 0;
+      const seq = typeof msg.seq === "number" && Number.isFinite(msg.seq) ? msg.seq : 0;
+      const prev = poseStamp.get(from);
+      // Ignore a stale unordered state packet so it can't un-hide (or re-hide) a player.
+      if (prev && (seq < prev.seq || (seq === prev.seq && stamp < prev.t))) return;
+      poseStamp.set(from, { t: stamp, seq });
+      if (msg.k === "booth" && typeof msg.pray === "boolean") pose.pray = msg.pray;
       const known = remotes.current.has(from);
       remotes.current.set(from, pose);
       if (!known) setRemoteIds([...remotes.current.keys()]);
+      applyRemoteVisibility(from);
       return;
     }
     if (channel === "state" && msg.k === "v" && typeof msg.pcm === "string" && typeof msg.seq === "number") {
@@ -271,6 +283,7 @@ export function NeonLane() {
   useEffect(() => {
     const down = (event: KeyboardEvent) => {
       if (isTyping(event.target)) return;
+      if (sanctuary.modal) return;
       held.current.add(event.code);
       if (event.code.startsWith("Arrow")) event.preventDefault();
       if (!enteredRef.current || event.repeat) return;
@@ -459,6 +472,7 @@ export function NeonLane() {
           onSys={onSys}
         />
       ) : null}
+      <Sanctuary entered={entered} player={player} held={held} />
       <PlazaChrome
         booted={booted}
         entered={entered}
@@ -579,6 +593,7 @@ function RoomSession(props: {
     for (const id of props.remotes.current.keys()) {
       if (!alive.has(id)) {
         props.remotes.current.delete(id);
+        poseStamp.delete(id);
         changed = true;
       }
     }

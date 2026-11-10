@@ -1,4 +1,7 @@
-import type { Obstacle } from "./sim";
+import { ALTAR_Z, BOOTH, LECTERN, type Obstacle } from "./sim";
+
+/** Church pew row centres (z). */
+export const PEW_ROWS = [-17.4, -19.0, -20.6, -22.2, -23.8];
 
 export const PUBLIC_ROOM = "neon-lane";
 
@@ -15,6 +18,13 @@ export const STATIC_OBSTACLES: Obstacle[] = [
   { x: 6.2, z: -5.4, r: 0.38 },
   { x: -1.55, z: 12.15, r: 0.42 },
   { x: 1.55, z: 12.15, r: 0.42 },
+  // Church pews (two per side per row, centre aisle left clear), altar,
+  // lectern and confessional booth.
+  ...PEW_ROWS.flatMap((z) => [-3.4, -1.9, 1.9, 3.4].map((x) => ({ x, z, r: 0.42 }))),
+  { x: -0.8, z: ALTAR_Z, r: 0.65 },
+  { x: 0.8, z: ALTAR_Z, r: 0.65 },
+  { x: LECTERN.x, z: LECTERN.z, r: LECTERN.r },
+  ...[-0.7, 0, 0.7].map((dz) => ({ x: BOOTH.x, z: BOOTH.z + dz, r: 0.9 })),
 ];
 
 export type NpcDef = {
